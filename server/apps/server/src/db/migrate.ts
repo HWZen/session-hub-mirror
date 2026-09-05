@@ -1,4 +1,5 @@
 import type { SqliteDatabase } from "./connection.js";
+import { listEmbeddingTables } from "./embeddings.js";
 
 const MIGRATION_0001_SQL = `
   CREATE TABLE IF NOT EXISTS sessions (
@@ -46,6 +47,14 @@ function tableExists(db: SqliteDatabase, name: string): boolean {
   );
 }
 
+function vec0VtabExists(db: SqliteDatabase, name: string): boolean {
+  return (
+    db
+      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? AND sql LIKE 'CREATE VIRTUAL TABLE%'")
+      .get(name) !== undefined
+  );
+}
+
 function renameLegacyEmbeddingsTable(db: SqliteDatabase): void {
   if (!tableExists(db, LEGACY_EMBEDDINGS_TABLE)) return;
   if (tableExists(db, BGE_M3_TABLE)) {
@@ -61,6 +70,35 @@ function renameLegacyEmbeddingsTable(db: SqliteDatabase): void {
   db.exec(`DROP TABLE ${LEGACY_EMBEDDINGS_TABLE}`);
 }
 
+function dropOrphanShadowTables(db: SqliteDatabase): void {
+  const live = new Set(listEmbeddingTables(db));
+  const shadowRe = new Set(
+    [...live].map((v) => new RegExp(`^${v}_(?:info|chunks|rowids|vector_chunks\\d+)$`)),
+  );
+  const rows = db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'message_embeddings_%'")
+    .all() as Array<{ name: string }>;
+  for (const { name } of rows) {
+    if (live.has(name) || [...shadowRe].some((re) => re.test(name))) continue;
+    db.exec(`DROP TABLE "${name}"`);
+  }
+}
+
+function repairRenamedVec0Table(db: SqliteDatabase): void {
+  const targetShadowInfo = `${BGE_M3_TABLE}_info`;
+  const legacyShadowInfo = `${LEGACY_EMBEDDINGS_TABLE}_info`;
+  if (
+    !vec0VtabExists(db, BGE_M3_TABLE) ||
+    tableExists(db, targetShadowInfo) ||
+    !tableExists(db, legacyShadowInfo)
+  ) {
+    return;
+  }
+  db.exec(`ALTER TABLE ${BGE_M3_TABLE} RENAME TO ${LEGACY_EMBEDDINGS_TABLE}`);
+  renameLegacyEmbeddingsTable(db);
+  dropOrphanShadowTables(db);
+}
+
 const MIGRATIONS: ReadonlyArray<{ name: string; up: (db: SqliteDatabase) => void }> = [
   {
     name: "0001_init",
@@ -72,6 +110,12 @@ const MIGRATIONS: ReadonlyArray<{ name: string; up: (db: SqliteDatabase) => void
     name: "0002_model_partioned_embeddings",
     up: (db) => {
       renameLegacyEmbeddingsTable(db);
+    },
+  },
+  {
+    name: "0003_repair_vec0_shadow_tables",
+    up: (db) => {
+      repairRenamedVec0Table(db);
     },
   },
 ];
