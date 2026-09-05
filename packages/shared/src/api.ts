@@ -1,0 +1,47 @@
+import type { SearchHit, SessionRecord } from "./session.js";
+
+export interface SessionListItem extends SessionRecord {
+  message_count: number;
+}
+
+export interface SessionListResponse {
+  total: number;
+  limit: number;
+  offset: number;
+  items: SessionListItem[];
+}
+
+export interface UpsertResult {
+  id: string;
+  created: boolean;
+  indexed: boolean;
+}
+
+export interface SearchResponse {
+  model: string;
+  provider: string;
+  results: SearchHit[];
+}
+
+export interface HealthStatus {
+  ok: boolean;
+  version: string;
+  db: { ok: boolean; journal_mode: string };
+  embedding: {
+    current: string | null;
+    model: string;
+    providers: Array<{ name: string; kind: string; ready: boolean; lastError: string | null }>;
+  };
+  now: number;
+}
+
+export interface StatsSummary {
+  sessions: number;
+  messages: number;
+  indexed: number;
+  unindexed: number;
+  by_agent: Record<string, number>;
+  by_machine: Record<string, number>;
+  first_session_at: number | null;
+  last_session_at: number | null;
+}

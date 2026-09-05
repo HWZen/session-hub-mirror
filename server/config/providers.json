@@ -1,0 +1,26 @@
+{
+  "_note": "embedding 提供商链配置样例。模型全链固定 bge-m3 (1024 维)，不允许配置模型；只允许配置地址/密钥/权重/开关。weight 越大越优先；本地 CPU bge-m3 兜底自动排在最后，无需在此配置。真实密钥放 config/providers.local.json（gitignore）或环境变量。",
+  "providers": [
+    {
+      "name": "5070ti-frp",
+      "baseUrl": "http://127.0.0.1:9100/v1",
+      "apiKeyEnv": "SH_EMBED_KEY_5070TI",
+      "weight": 100,
+      "enabled": false
+    },
+    {
+      "name": "4070ti-frp",
+      "baseUrl": "http://127.0.0.1:9101/v1",
+      "apiKeyEnv": "SH_EMBED_KEY_4070TI",
+      "weight": 80,
+      "enabled": false
+    },
+    {
+      "name": "cloud-newapi",
+      "baseUrl": "https://your-newapi-host/v1",
+      "apiKeyEnv": "SH_EMBED_KEY_CLOUD",
+      "weight": 50,
+      "enabled": false
+    }
+  ]
+}

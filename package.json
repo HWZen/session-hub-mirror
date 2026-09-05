@@ -1,0 +1,35 @@
+{
+  "name": "session-hub",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "server/apps/*",
+    "plugins/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run build -w @session-hub/shared && tsx watch server/apps/server/src/index.ts",
+    "dev:web": "npm run dev -w @session-hub/web",
+    "start": "npm run build && node server/apps/server/dist/index.js",
+    "reindex": "npm run build -w @session-hub/shared && tsx server/apps/server/src/scripts/reindex.ts",
+    "build": "tsc -b && npm run build -w @session-hub/web",
+    "clean": "tsc -b --clean",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.3.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  },
+  "allowScripts": {
+    "better-sqlite3@13.0.3": true,
+    "esbuild@0.28.2": true,
+    "onnxruntime-node@1.21.0": true,
+    "onnxruntime-node@1.24.3": true,
+    "sharp@0.34.5": true,
+    "protobufjs@7.6.6": true
+  }
+}
