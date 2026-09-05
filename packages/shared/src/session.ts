@@ -26,6 +26,7 @@ const timeValueSchema = z
 export const sessionFilterSchema = z.object({
   agent: z.string().min(1).max(64).optional(),
   machine: z.string().min(1).max(128).optional(),
+  source_id: z.string().min(1).max(256).optional(),
   created_from: timeValueSchema.optional(),
   created_to: timeValueSchema.optional(),
   updated_from: timeValueSchema.optional(),

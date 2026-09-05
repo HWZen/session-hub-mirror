@@ -111,6 +111,21 @@ describe("sessions CRUD", () => {
     expect(badPage.status).toBe(400);
   });
 
+  it("filters by source_id alone and combined with agent/machine", async () => {
+    const { app } = buildApp();
+    await putSession(app, sessionBody({ source_id: "a1", agent: "opencode", machine: "M1" }));
+    await putSession(app, sessionBody({ source_id: "a1", agent: "workbuddy", machine: "M2" }));
+    await putSession(app, sessionBody({ source_id: "a2", agent: "opencode", machine: "M1" }));
+
+    const hit = await getList(app, "?agent=opencode&machine=M1&source_id=a1");
+    expect(hit.total).toBe(1);
+    expect(hit.items[0]!.source_id).toBe("a1");
+    expect(hit.items[0]!.agent).toBe("opencode");
+
+    expect((await getList(app, "?agent=opencode&machine=M2&source_id=a1")).total).toBe(0);
+    expect((await getList(app, "?source_id=missing")).total).toBe(0);
+  });
+
   it("rejects invalid bodies", async () => {
     const { app } = buildApp();
     const missing = await putSession(app, { agent: "opencode" });

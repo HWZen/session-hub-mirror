@@ -34,6 +34,10 @@ export function buildSessionFilter(filters: SessionFilters): FilterClause {
     conds.push("machine = ?");
     params.push(filters.machine);
   }
+  if (filters.source_id !== undefined) {
+    conds.push("source_id = ?");
+    params.push(filters.source_id);
+  }
   if (filters.created_from !== undefined) {
     conds.push("created_at >= ?");
     params.push(filters.created_from);
