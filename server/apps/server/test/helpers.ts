@@ -159,7 +159,7 @@ export function makeSettingsDeps(
     path.join(dir, "providers.local.json"),
     path.join(dir, "providers.fallback.json"),
   );
-  return { store, registry: parts.registry, repo: parts.repo, indexer: parts.indexer, env: {}, localFallbackName: "local-cpu-bge-m3", ...overrides };
+  return { store, registry: parts.registry, repo: parts.repo, indexer: parts.indexer, env: {}, ...overrides };
 }
 
 export function putSession(

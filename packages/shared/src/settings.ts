@@ -28,7 +28,6 @@ export interface ProviderSettingsItem {
 export interface ProvidersSettingsResponse {
   file: string;
   providers: ProviderSettingsItem[];
-  localFallback: { name: string; model: string };
 }
 
 export interface ProviderTestResult {

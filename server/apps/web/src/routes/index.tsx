@@ -32,6 +32,12 @@ export function OverviewPage() {
   return (
     <Page>
       <PageHeader title="总览" description="跨机器、跨 Agent 的会话档案库" />
+      {(health.data?.warnings.length ?? 0) > 0 ? (
+        <div className="flex items-center gap-3 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning">
+          <AlertTriangleIcon className="size-4 shrink-0" />
+          <span>{health.data?.warnings.join("；")}</span>
+        </div>
+      ) : null}
       {s && s.unindexed > 0 ? (
         <div className="flex items-center gap-3 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning">
           <AlertTriangleIcon className="size-4 shrink-0" />

@@ -1,5 +1,5 @@
 {
-  "_note": "embedding 提供商链配置样例。模型全链固定 bge-m3 (1024 维)，不允许配置模型；只允许配置地址/密钥/权重/开关。weight 越大越优先；本地 CPU bge-m3 兜底自动排在最后，无需在此配置。真实密钥放 config/providers.local.json（gitignore）或环境变量。",
+  "_note": "embedding 提供商链配置样例。模型全链固定 bge-m3 (1024 维)，不允许配置模型；只允许配置地址/密钥/权重/开关。weight 越大越优先。无内置本地兜底：本地推理服务（Ollama/llama.cpp/vLLM 等）按普通 OpenAI 兼容 provider 配置（见 local-inference 示例）。全部禁用时不静默兜底，/health 返回 warnings，索引与语义检索显式报错。真实密钥放 config/providers.local.json（gitignore）或环境变量。",
   "providers": [
     {
       "name": "5070ti-frp",
@@ -20,6 +20,13 @@
       "baseUrl": "https://your-newapi-host/v1",
       "apiKeyEnv": "SH_EMBED_KEY_CLOUD",
       "weight": 50,
+      "enabled": false
+    },
+    {
+      "name": "local-inference",
+      "baseUrl": "http://127.0.0.1:11434/v1",
+      "apiKeyEnv": "SH_EMBED_KEY_LOCAL",
+      "weight": 20,
       "enabled": false
     }
   ]

@@ -26,6 +26,7 @@ export interface SearchResponse {
 export interface HealthStatus {
   ok: boolean;
   version: string;
+  warnings: string[];
   db: { ok: boolean; journal_mode: string };
   embedding: {
     current: string | null;

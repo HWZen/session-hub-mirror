@@ -19,10 +19,13 @@ export function healthRoutes(deps: HealthRouteDeps): Hono {
       dbOk = false;
     }
     const journalMode = deps.db.pragma("journal_mode", { simple: true });
+    const warnings =
+      deps.registry.providers.length === 0 ? ["未配置任何向量提供商，索引与语义检索不可用"] : [];
     return c.json(
       {
         ok: dbOk,
         version: SERVER_VERSION,
+        warnings,
         db: { ok: dbOk, journal_mode: journalMode },
         embedding: deps.registry.status(),
         now: Date.now(),

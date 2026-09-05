@@ -26,18 +26,15 @@ function settingsRequest(
 }
 
 describe("settings providers", () => {
-  it("GET 返回空链与本地兜底信息", async () => {
+  it("GET 返回空链信息", async () => {
     const { app } = buildApp(TEST_TOKEN, undefined, undefined, (parts) => makeSettingsDeps(parts));
     const res = await settingsRequest(app, "GET", "/providers");
     expect(res.status).toBe(200);
     const data = (await res.json()) as {
       file: string;
       providers: unknown[];
-      localFallback: { name: string; model: string };
     };
     expect(data.providers).toEqual([]);
-    expect(data.localFallback.name).toBe("local-cpu-bge-m3");
-    expect(data.localFallback.model).toBe("bge-m3");
   });
 
   it("PUT 内联密钥后 GET 掩码返回，不泄露完整密钥", async () => {

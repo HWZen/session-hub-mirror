@@ -4,7 +4,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CheckCircle2Icon,
   CircleAlertIcon,
-  CpuIcon,
   DatabaseBackupIcon,
   PlugZapIcon,
   PlusIcon,
@@ -213,7 +212,6 @@ function ProvidersCard() {
   }, [data]);
 
   const dirty = normalizeRows(rows) !== normalizeRows(serverRows);
-  const localFallback = data?.localFallback;
 
   function updateRow(rowKey: string, patch: Partial<EditableProvider>): void {
     setRows((prev) => prev.map((r) => (r.rowKey === rowKey ? { ...r, ...patch } : r)));
@@ -327,6 +325,12 @@ function ProvidersCard() {
         ) : (
           <>
             <div className="flex flex-col gap-2.5">
+              {rows.length === 0 ? (
+                <p className="flex items-start gap-2 rounded-lg bg-warning/10 px-3 py-2 text-xs text-warning">
+                  <CircleAlertIcon className="mt-0.5 size-3.5 shrink-0" />
+                  <span>尚未配置任何向量提供商，索引与语义检索不可用；点击下方「添加提供商」接入 OpenAI 兼容服务（本地推理服务如 Ollama 也按此方式配置）</span>
+                </p>
+              ) : null}
               {rows.map((row) => {
                 const test = tests[row.rowKey];
                 return (
@@ -423,11 +427,6 @@ function ProvidersCard() {
                   </div>
                 );
               })}
-            </div>
-            <div className="flex items-center gap-2 rounded-xl border border-dashed border-border/70 px-3 py-2.5">
-              <CpuIcon className="size-4 shrink-0 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">本地 CPU 兜底（{localFallback?.name}）</span>
-              <span className="ml-auto text-[11px] text-muted-foreground/70">固定 {localFallback?.model} · 恒排最后 · 不可移除</span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Button variant="outline" onClick={addRow}>

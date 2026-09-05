@@ -10,9 +10,6 @@ const envSchema = z.object({
   SH_AUTH_TOKEN: z.string().min(8),
   SH_PROVIDERS_FILE: z.string().min(1).default("./config/providers.json"),
   SH_PROVIDERS_LOCAL_FILE: z.string().min(1).default("./config/providers.local.json"),
-  SH_MODEL_CACHE_DIR: z.string().min(1).default("./data/models"),
-  SH_MODEL_HUB_ENDPOINT: z.string().min(1).default("https://modelscope.cn/"),
-  SH_MODEL_HUB_PATH_TEMPLATE: z.string().min(1).default("models/{model}/resolve/master/"),
   SH_WEB_DIST: z.string().default(""),
 });
 

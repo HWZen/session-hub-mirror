@@ -6,10 +6,6 @@ import {
 } from "@session-hub/shared";
 
 const REMOTE_COOLDOWN_MS = 30_000;
-const LOCAL_COOLDOWN_MS = 5 * 60_000;
-const LOCAL_BATCH_SIZE = 8;
-const LOCAL_MAX_CHARS = 12000;
-const LOCAL_MODEL_REPO = "Xenova/bge-m3";
 
 export interface EmbedOutput {
   vectors: Float32Array[];
@@ -18,7 +14,7 @@ export interface EmbedOutput {
 
 export interface EmbedProvider {
   readonly name: string;
-  readonly kind: "remote" | "local" | "fake";
+  readonly kind: "remote" | "fake";
   readonly priority: number;
   readonly ready: boolean;
   readonly lastError: string | null;
@@ -115,79 +111,6 @@ export class RemoteEmbedProvider implements EmbedProvider {
   }
 }
 
-type FeatureExtractionPipeline = import("@huggingface/transformers").FeatureExtractionPipeline;
-
-export class LocalEmbedProvider implements EmbedProvider {
-  readonly kind = "local" as const;
-  cooldownUntil = 0;
-  lastError: string | null = null;
-  #extractor: FeatureExtractionPipeline | null = null;
-  #loading: Promise<FeatureExtractionPipeline> | null = null;
-
-  constructor(
-    readonly name: string,
-    private readonly cacheDir: string,
-    private readonly hub: { endpoint: string; pathTemplate: string },
-  ) {}
-
-  get priority(): number {
-    return Number.NEGATIVE_INFINITY;
-  }
-
-  get ready(): boolean {
-    return Date.now() >= this.cooldownUntil;
-  }
-
-  reportSuccess(): void {
-    this.cooldownUntil = 0;
-    this.lastError = null;
-  }
-
-  reportFailure(message: string): void {
-    this.cooldownUntil = Date.now() + LOCAL_COOLDOWN_MS;
-    this.lastError = message;
-  }
-
-  #getExtractor(): Promise<FeatureExtractionPipeline> {
-    if (this.#extractor) return Promise.resolve(this.#extractor);
-    if (!this.#loading) {
-      this.#loading = (async () => {
-        const { pipeline, env } = await import("@huggingface/transformers");
-        env.cacheDir = this.cacheDir;
-        env.remoteHost = this.hub.endpoint;
-        env.remotePathTemplate = this.hub.pathTemplate;
-        const extractor = await pipeline("feature-extraction", LOCAL_MODEL_REPO, {
-          dtype: "fp32",
-          device: "cpu",
-        });
-        this.#extractor = extractor;
-        return extractor;
-      })();
-      this.#loading.catch(() => {
-        this.#loading = null;
-      });
-    }
-    return this.#loading;
-  }
-
-  async embed(texts: string[]): Promise<Float32Array[]> {
-    const extractor = await this.#getExtractor();
-    const out: Float32Array[] = [];
-    for (let i = 0; i < texts.length; i += LOCAL_BATCH_SIZE) {
-      const batch = texts.slice(i, i + LOCAL_BATCH_SIZE).map((t) => t.slice(0, LOCAL_MAX_CHARS));
-      const tensor = await extractor(batch, { pooling: "cls", normalize: true });
-      const dims = tensor.dims;
-      const dim = dims[dims.length - 1];
-      if (typeof dim !== "number") throw new Error("unexpected tensor dims");
-      const data = tensor.data as Float32Array;
-      for (let j = 0; j < batch.length; j++) {
-        out.push(data.slice(j * dim, (j + 1) * dim));
-      }
-    }
-    return out;
-  }
-}
-
 function validateVectors(vectors: Float32Array[], expected: number): void {
   if (vectors.length !== expected) {
     throw new Error(`provider returned ${vectors.length} vectors, expected ${expected}`);
@@ -209,19 +132,19 @@ export class EmbeddingUnavailableError extends Error {
 export interface RegistryStatus {
   current: string | null;
   model: string;
-  providers: Array<{ name: string; kind: "remote" | "local" | "fake"; ready: boolean; lastError: string | null }>;
+  providers: Array<{ name: string; kind: "remote" | "fake"; ready: boolean; lastError: string | null }>;
 }
 
 export class EmbeddingRegistry {
   #current: string | null = null;
   #remote: EmbedProvider[];
 
-  constructor(remote: EmbedProvider[], private readonly local: EmbedProvider | null = null) {
+  constructor(remote: EmbedProvider[]) {
     this.#remote = [...remote];
   }
 
   get providers(): EmbedProvider[] {
-    return this.local ? [...this.#remote, this.local] : [...this.#remote];
+    return [...this.#remote];
   }
 
   replaceRemoteProviders(remote: EmbedProvider[]): void {
@@ -307,18 +230,9 @@ export function createRemoteProviders(
   });
 }
 
-export function createLocalEmbedProvider(
-  localCacheDir: string,
-  hub: { endpoint: string; pathTemplate: string },
-): LocalEmbedProvider {
-  return new LocalEmbedProvider("local-cpu-bge-m3", localCacheDir, hub);
-}
-
 export function createRegistry(
   configs: ReadonlyArray<EmbeddingProviderConfig>,
   env: NodeJS.ProcessEnv,
-  localCacheDir: string,
-  hub: { endpoint: string; pathTemplate: string },
 ): EmbeddingRegistry {
-  return new EmbeddingRegistry(createRemoteProviders(configs, env), createLocalEmbedProvider(localCacheDir, hub));
+  return new EmbeddingRegistry(createRemoteProviders(configs, env));
 }

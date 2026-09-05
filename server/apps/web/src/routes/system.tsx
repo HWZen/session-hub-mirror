@@ -40,6 +40,12 @@ function SystemPage() {
         </Card>
       ) : (
         <>
+          {data.warnings.length > 0 ? (
+            <div className="flex items-center gap-3 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning">
+              <CircleAlertIcon className="size-4 shrink-0" />
+              <span>{data.warnings.join("；")}</span>
+            </div>
+          ) : null}
           <div className="grid gap-4 md:grid-cols-2">
             <Card>
               <CardHeader className="flex-row items-center justify-between">

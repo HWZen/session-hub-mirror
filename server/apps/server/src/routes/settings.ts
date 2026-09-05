@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { EMBEDDING_MODEL, providerSettingsBodySchema } from "@session-hub/shared";
+import { providerSettingsBodySchema } from "@session-hub/shared";
 import { createRemoteProviders, type EmbeddingRegistry } from "../embedding/registry.js";
 import type { SessionRepository } from "../db/sessions.js";
 import type { SessionIndexer } from "../indexing.js";
@@ -14,7 +14,6 @@ export interface SettingsRouteDeps {
   repo: SessionRepository;
   indexer: SessionIndexer;
   env: NodeJS.ProcessEnv;
-  localFallbackName: string;
 }
 
 function maskKey(key: string): string {
@@ -51,7 +50,6 @@ export function settingsRoutes(deps: SettingsRouteDeps): Hono {
     return c.json({
       file: deps.store.activeFile(),
       providers: items,
-      localFallback: { name: deps.localFallbackName, model: EMBEDDING_MODEL },
     });
   });
 
