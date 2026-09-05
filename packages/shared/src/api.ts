@@ -31,7 +31,7 @@ export interface HealthStatus {
   embedding: {
     current: string | null;
     model: string;
-    providers: Array<{ name: string; kind: string; ready: boolean; lastError: string | null }>;
+    providers: Array<{ name: string; kind: string; model: string; ready: boolean; lastError: string | null }>;
   };
   now: number;
 }

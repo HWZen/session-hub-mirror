@@ -1,11 +1,9 @@
 import { z } from "zod";
 
-export const EMBEDDING_MODEL = "bge-m3";
-export const EMBEDDING_DIMENSIONS = 1024;
-
 export const embeddingProviderConfigSchema = z.object({
   name: z.string().min(1),
   baseUrl: z.url(),
+  model: z.string().min(1).default("bge-m3"),
   apiKey: z.string().optional(),
   apiKeyEnv: z.string().min(1).optional(),
   weight: z.number().int().min(0).max(10000).default(100),

@@ -29,7 +29,7 @@ Session Hub：跨端跨 Agent 的个人会话档案库 + 检索层。只做"存�
 - 校验：zod；测试：vitest；运行：tsx（dev）/ tsc（build）
 - 包管理：npm（不引入 pnpm/yarn）
 - **不用 Docker**；Windows 服务化用 NSSM
-- 向量模型全链统一 **bge-m3（1024 维）**——任何代码/配置不得引入其他模型；提供商只允许配置"地址/密钥/权重/开关"，不允许配置"模型"
+- 向量模型**按提供商配置**（provider 级 `model` 字段，默认 bge-m3）；活跃模型 = weight 最高的已启用提供商的模型；索引与检索只用活跃模型的向量空间，failover 候选仅限同模型提供商；向量表按模型分表，切换模型需对活跃模型重新索引；不引入"最大上下文"配置
 
 ## 存储红线（SQLite on NAS/SMB）
 
@@ -69,7 +69,7 @@ docs/                 # 运行手册（后期）
 ## Embedding 提供商链
 
 优先级（配置文件驱动）：`5070Ti(frpc) → 4070Ti(frpc) → 云端(待填)`；**无内置本地兜底**，本地推理服务（Ollama 等）按普通 OpenAI 兼容 provider 配置。
-要求：健康检查 + 自动降级 + 恢复回升；全部 OpenAI 兼容 `/v1/embeddings` 接口；同一模型 bge-m3；未配置任何可用提供商时 health 返回 warnings，不静默兜底。
+要求：健康检查 + 自动降级 + 恢复回升；全部 OpenAI 兼容 `/v1/embeddings` 接口；failover 仅限同模型提供商（活跃模型 = 最高优先级已启用提供商的模型）；未配置任何可用提供商时 health 返回 warnings，不静默兜底。
 
 ## 安全
 

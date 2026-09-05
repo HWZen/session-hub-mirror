@@ -176,15 +176,15 @@ describe("sessions CRUD", () => {
   });
 
   it("reindexes previously unindexed sessions", async () => {
-    const { app, db, repo } = buildApp(TEST_TOKEN, [new FailingEmbedProvider("always-fails")]);
+    const { app, db, repo, registry } = buildApp(TEST_TOKEN, [new FailingEmbedProvider("always-fails")]);
     const res = await putSession(app, sessionBody());
     const { id } = (await res.json()) as { id: string };
-    const unindexed = repo.listUnindexed(100);
+    const unindexed = repo.listUnindexed(100, registry.activeModel());
     expect(unindexed.map((s) => s.id)).toContain(id);
 
-    const registry = new EmbeddingRegistry([new FakeEmbedProvider("recovered")]);
-    const indexer = new SessionIndexer(db, repo, registry);
+    const registry2 = new EmbeddingRegistry([new FakeEmbedProvider("recovered")]);
+    const indexer = new SessionIndexer(db, repo, registry2);
     expect(await indexer.indexSession(id)).toBe(true);
-    expect(repo.listUnindexed(100)).toHaveLength(0);
+    expect(repo.listUnindexed(100, registry2.activeModel())).toHaveLength(0);
   });
 });

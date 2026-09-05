@@ -25,7 +25,7 @@ npm test
 ```
 
 配置：复制 `server/.env.example` 为 `server/.env`；embedding 提供商在 Web 设置页或
-`server/config/providers.local.json` 配置（模型固定 bge-m3）。
+`server/config/providers.local.json` 配置（模型按提供商配置，默认 bge-m3）。
 
 ## 文档
 

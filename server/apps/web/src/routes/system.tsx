@@ -87,7 +87,8 @@ function SystemPage() {
                 <CardTitle>Embedding 提供商链</CardTitle>
               </div>
               <CardDescription>
-                模型固定 {data.embedding.model}（1024 维）· 当前 {data.embedding.current ?? "未使用"} · 按 weight 降序 failover，失败进入冷却后自动恢复
+                活跃模型 {data.embedding.model || "未配置"} · 当前 {data.embedding.current ?? "未使用"} · 按 weight
+                降序 failover，失败进入冷却后自动恢复
               </CardDescription>
             </CardHeader>
             <CardContent className="pt-0">
@@ -100,6 +101,7 @@ function SystemPage() {
                     </Badge>
                     <span className="font-medium">{p.name}</span>
                     <Badge variant="muted">{p.kind}</Badge>
+                    <Badge variant="muted" className="font-mono">{p.model}</Badge>
                     {p.lastError ? <span className="text-xs text-destructive/90">{p.lastError}</span> : null}
                   </li>
                 ))}

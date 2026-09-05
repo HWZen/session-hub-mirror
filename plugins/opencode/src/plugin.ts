@@ -196,13 +196,14 @@ export async function mirrorDelete(
 
 export function loadConfig(
   env: Record<string, string | undefined> = process.env,
+  configPath: string = CONFIG_PATH,
 ): SessionHubConfig | null {
   let baseUrl = env["SESSION_HUB_URL"];
   let token = env["SESSION_HUB_TOKEN"];
   let timeoutMs = DEFAULT_TIMEOUT_MS;
   if (baseUrl === undefined || token === undefined) {
     try {
-      const file = JSON.parse(readFileSync(CONFIG_PATH, "utf8")) as Record<string, unknown>;
+      const file = JSON.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>;
       if (baseUrl === undefined && typeof file["baseUrl"] === "string") baseUrl = file["baseUrl"];
       if (token === undefined && typeof file["token"] === "string") token = file["token"];
       if (typeof file["timeoutMs"] === "number" && (file["timeoutMs"] as number) > 0) {

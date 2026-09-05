@@ -65,7 +65,7 @@ function SearchPage() {
 
   return (
     <Page className="mx-auto w-full max-w-3xl">
-      <PageHeader title="语义检索" description="跨机器、跨 Agent 的对话内容向量检索（bge-m3）" />
+      <PageHeader title="语义检索" description="跨机器、跨 Agent 的对话内容向量检索" />
       <form
         onSubmit={(e) => {
           e.preventDefault();

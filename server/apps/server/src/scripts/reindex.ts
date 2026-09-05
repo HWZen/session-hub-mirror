@@ -1,8 +1,9 @@
 import { bootstrap } from "../bootstrap.js";
 
-const { repo, indexer } = bootstrap();
-const sessions = repo.listUnindexed(10000);
-console.log(`[reindex] ${sessions.length} session(s) to index`);
+const { repo, indexer, registry } = bootstrap();
+const activeModel = registry.activeModel();
+const sessions = repo.listUnindexed(10000, activeModel);
+console.log(`[reindex] activeModel=${activeModel ?? "(none)"}, ${sessions.length} session(s) to index`);
 let ok = 0;
 for (const session of sessions) {
   if (await indexer.indexSession(session.id)) ok++;

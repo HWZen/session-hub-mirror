@@ -8,7 +8,6 @@ import {
   putSession,
   sessionBody,
 } from "./helpers.js";
-
 function settingsRequest(
   app: ReturnType<typeof buildApp>["app"],
   method: "GET" | "PUT" | "POST",
@@ -119,29 +118,78 @@ describe("settings providers", () => {
     const res = await settingsRequest(app, "PUT", "/providers", { providers: [{ name: "x" }] });
     expect(res.status).toBe(400);
   });
+
+  it("PUT 带 model 字段后 GET 原样返回", async () => {
+    const { app } = buildApp(TEST_TOKEN, undefined, undefined, (parts) => makeSettingsDeps(parts));
+    const put = await settingsRequest(app, "PUT", "/providers", {
+      providers: [
+        { name: "local", baseUrl: "http://127.0.0.1:434/v1", model: "qwen3-embedding:8b", weight: 100, enabled: true },
+      ],
+    });
+    expect(put.status).toBe(200);
+    const data = (await (await settingsRequest(app, "GET", "/providers")).text()) as string;
+    const parsed = JSON.parse(data) as { providers: Array<{ model: string }> };
+    expect(parsed.providers[0]!.model).toBe("qwen3-embedding:8b");
+  });
+
+  it("PUT 旧格式（无 model）加载后默认 bge-m3", async () => {
+    const { app } = buildApp(TEST_TOKEN, undefined, undefined, (parts) => makeSettingsDeps(parts));
+    const put = await settingsRequest(app, "PUT", "/providers", {
+      providers: [{ name: "gpu-a", baseUrl: "http://127.0.0.1:9100/v1", weight: 100, enabled: true }],
+    });
+    expect(put.status).toBe(200);
+    const parsed = JSON.parse(await (await settingsRequest(app, "GET", "/providers")).text()) as {
+      providers: Array<{ model: string }>;
+    };
+    expect(parsed.providers[0]!.model).toBe("bge-m3");
+  });
 });
 
 describe("settings provider test", () => {
-  it("探针成功返回维度与延迟", async () => {
+  it("探针成功返回 model、维度与延迟", async () => {
     const { app } = buildApp(TEST_TOKEN, [new FakeEmbedProvider("fake")], undefined, (parts) =>
       makeSettingsDeps(parts),
     );
     const res = await settingsRequest(app, "POST", "/providers/test", { name: "fake" });
     expect(res.status).toBe(200);
-    const data = (await res.json()) as { ok: boolean; dim: number | null; latencyMs: number | null };
+    const data = (await res.json()) as {
+      ok: boolean;
+      dim: number | null;
+      model: string | null;
+      latencyMs: number | null;
+    };
     expect(data.ok).toBe(true);
+    expect(data.model).toBe("bge-m3");
     expect(data.dim).toBe(1024);
     expect(data.latencyMs).toBeGreaterThanOrEqual(0);
   });
 
-  it("维度不符返回失败详情", async () => {
-    const { app } = buildApp(TEST_TOKEN, [new BadDimEmbedProvider("bad-dim")], undefined, (parts) =>
+  it("探针如实返回提供商自己的实际维度（4096 维可测）", async () => {
+    const { app } = buildApp(
+      TEST_TOKEN,
+      [new FakeEmbedProvider("qwen", "qwen3-embedding:8b", 100, 4096)],
+      undefined,
+      (parts) => makeSettingsDeps(parts),
+    );
+    const res = await settingsRequest(app, "POST", "/providers/test", { name: "qwen" });
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as { ok: boolean; dim: number | null; model: string | null };
+    expect(data.ok).toBe(true);
+    expect(data.model).toBe("qwen3-embedding:8b");
+    expect(data.dim).toBe(4096);
+  });
+
+  it("维度与已建立的模型空间不符时探针失败并返回详情", async () => {
+    const { app } = buildApp(TEST_TOKEN, [new BadDimEmbedProvider("bad-dim"), new FakeEmbedProvider("good")], undefined, (parts) =>
       makeSettingsDeps(parts),
     );
+    const first = await settingsRequest(app, "POST", "/providers/test", { name: "good" });
+    expect(((await first.json()) as { ok: boolean }).ok).toBe(true);
     const res = await settingsRequest(app, "POST", "/providers/test", { name: "bad-dim" });
     expect(res.status).toBe(200);
-    const data = (await res.json()) as { ok: boolean; error: string | null };
+    const data = (await res.json()) as { ok: boolean; model: string | null; error: string | null };
     expect(data.ok).toBe(false);
+    expect(data.model).toBe("bge-m3");
     expect(data.error).toContain("512-dim");
   });
 

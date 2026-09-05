@@ -7,6 +7,7 @@ import type {
   SessionUpsertInput,
   StatsSummary,
 } from "@session-hub/shared";
+import { clearSessionEmbeddings } from "./embeddings.js";
 import type { SqliteDatabase } from "./connection.js";
 
 export interface SessionListItem extends SessionRecord {
@@ -115,9 +116,7 @@ export class SessionRepository {
           )
           .run(id, agent, machine, source_id, title ?? null, cwd ?? null, created_at, updated_at);
       }
-      this.#db
-        .prepare("DELETE FROM message_embeddings WHERE message_id IN (SELECT id FROM messages WHERE session_id = ?)")
-        .run(id);
+      clearSessionEmbeddings(this.#db, id);
       this.#db.prepare("DELETE FROM messages WHERE session_id = ?").run(id);
       const insertMessage = this.#db.prepare(
         "INSERT INTO messages (session_id, idx, role, text, ts, raw) VALUES (?, ?, ?, ?, ?, ?)",
@@ -179,10 +178,14 @@ export class SessionRepository {
     this.#db.prepare("UPDATE sessions SET indexed_at = ?, indexed_model = ? WHERE id = ?").run(at, model, id);
   }
 
-  listUnindexed(limit: number): SessionRecord[] {
+  listUnindexed(limit: number, activeModel: string | null): SessionRecord[] {
+    const where =
+      activeModel === null
+        ? "deleted_at IS NULL"
+        : "deleted_at IS NULL AND (indexed_at IS NULL OR indexed_model != ?)";
     const rows = this.#db
-      .prepare(`SELECT ${SESSION_COLUMNS} FROM sessions WHERE deleted_at IS NULL AND indexed_at IS NULL ORDER BY created_at LIMIT ?`)
-      .all(limit) as Array<Record<string, unknown>>;
+      .prepare(`SELECT ${SESSION_COLUMNS} FROM sessions WHERE ${where} ORDER BY created_at LIMIT ?`)
+      .all(...(activeModel === null ? [] : [activeModel]), limit) as Array<Record<string, unknown>>;
     return rows.map(mapSessionRow);
   }
 
@@ -192,16 +195,22 @@ export class SessionRepository {
       .all(sessionId) as Array<{ id: number; idx: number; text: string }>;
   }
 
-  stats(): StatsSummary {
+  stats(activeModel: string | null): StatsSummary {
+    const indexedCond = activeModel === null ? "0" : "(indexed_model = ?)";
     const row = this.#db
       .prepare(
         `SELECT COUNT(*) AS sessions,
-                COALESCE(SUM(CASE WHEN indexed_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS indexed,
+                COALESCE(SUM(CASE WHEN ${indexedCond} THEN 1 ELSE 0 END), 0) AS indexed,
                 MIN(created_at) AS first_at,
                 MAX(updated_at) AS last_at
          FROM sessions WHERE deleted_at IS NULL`,
       )
-      .get() as { sessions: number; indexed: number; first_at: number | null; last_at: number | null };
+      .get(...(activeModel === null ? [] : [activeModel])) as {
+      sessions: number;
+      indexed: number;
+      first_at: number | null;
+      last_at: number | null;
+    };
     const messages = this.#db
       .prepare("SELECT COUNT(*) AS n FROM messages m JOIN sessions s ON s.id = m.session_id WHERE s.deleted_at IS NULL")
       .get() as { n: number };

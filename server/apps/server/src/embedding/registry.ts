@@ -1,19 +1,16 @@
-import {
-  EMBEDDING_DIMENSIONS,
-  EMBEDDING_MODEL,
-  type EmbeddingProviderConfig,
-  type ProviderTestResult,
-} from "@session-hub/shared";
+import type { EmbeddingProviderConfig, ProviderTestResult } from "@session-hub/shared";
 
 const REMOTE_COOLDOWN_MS = 30_000;
 
 export interface EmbedOutput {
   vectors: Float32Array[];
   provider: string;
+  model: string;
 }
 
 export interface EmbedProvider {
   readonly name: string;
+  readonly model: string;
   readonly kind: "remote" | "fake";
   readonly priority: number;
   readonly ready: boolean;
@@ -71,6 +68,10 @@ export class RemoteEmbedProvider implements EmbedProvider {
     return this.config.name;
   }
 
+  get model(): string {
+    return this.config.model;
+  }
+
   get priority(): number {
     return this.config.weight;
   }
@@ -97,7 +98,7 @@ export class RemoteEmbedProvider implements EmbedProvider {
       response = await fetch(embedUrl(this.config.baseUrl), {
         method: "POST",
         headers,
-        body: JSON.stringify({ model: EMBEDDING_MODEL, input: texts }),
+        body: JSON.stringify({ model: this.config.model, input: texts }),
         signal: AbortSignal.timeout(this.config.timeoutMs),
       });
     } catch (err) {
@@ -111,17 +112,6 @@ export class RemoteEmbedProvider implements EmbedProvider {
   }
 }
 
-function validateVectors(vectors: Float32Array[], expected: number): void {
-  if (vectors.length !== expected) {
-    throw new Error(`provider returned ${vectors.length} vectors, expected ${expected}`);
-  }
-  for (const vector of vectors) {
-    if (vector.length !== EMBEDDING_DIMENSIONS) {
-      throw new Error(`provider returned ${vector.length}-dim vector, expected ${EMBEDDING_DIMENSIONS}`);
-    }
-  }
-}
-
 export class EmbeddingUnavailableError extends Error {
   constructor(message: string) {
     super(message);
@@ -129,14 +119,23 @@ export class EmbeddingUnavailableError extends Error {
   }
 }
 
+export interface RegistryStatusProvider {
+  name: string;
+  kind: "remote" | "fake";
+  model: string;
+  ready: boolean;
+  lastError: string | null;
+}
+
 export interface RegistryStatus {
   current: string | null;
   model: string;
-  providers: Array<{ name: string; kind: "remote" | "fake"; ready: boolean; lastError: string | null }>;
+  providers: RegistryStatusProvider[];
 }
 
 export class EmbeddingRegistry {
   #current: string | null = null;
+  #dims = new Map<string, number>();
   #remote: EmbedProvider[];
 
   constructor(remote: EmbedProvider[]) {
@@ -155,43 +154,87 @@ export class EmbeddingRegistry {
     return this.providers.some((p) => p.name === name);
   }
 
+  activeModel(): string | null {
+    const sorted = [...this.#remote].sort((a, b) => b.priority - a.priority || a.name.localeCompare(b.name));
+    return sorted[0]?.model ?? null;
+  }
+
+  #establishedDim(model: string): number | undefined {
+    return this.#dims.get(model);
+  }
+
+  #validateVectors(model: string, vectors: Float32Array[], expected: number): void {
+    if (vectors.length !== expected) {
+      throw new Error(`provider returned ${vectors.length} vectors, expected ${expected}`);
+    }
+    const dim = vectors[0]!.length;
+    const established = this.#dims.get(model);
+    if (established !== undefined && dim !== established) {
+      throw new Error(`provider returned ${dim}-dim vector, model space established at ${established}-dim`);
+    }
+    for (const vector of vectors) {
+      if (vector.length !== dim) {
+        throw new Error(`provider returned inconsistent vector dims: ${vector.length} vs ${dim}`);
+      }
+    }
+  }
+
   async testProvider(name: string): Promise<ProviderTestResult> {
     const provider = this.providers.find((p) => p.name === name);
     if (!provider) {
-      return { ok: false, latencyMs: null, dim: null, error: "provider not found" };
+      return { ok: false, latencyMs: null, dim: null, model: null, error: "provider not found" };
     }
     const start = Date.now();
     try {
       const vectors = await provider.embed(["session-hub embedding probe"]);
-      validateVectors(vectors, 1);
+      this.#validateVectors(provider.model, vectors, 1);
+      this.#dims.set(provider.model, vectors[0]!.length);
       provider.reportSuccess();
-      return { ok: true, latencyMs: Date.now() - start, dim: vectors[0]!.length, error: null };
+      return {
+        ok: true,
+        latencyMs: Date.now() - start,
+        dim: vectors[0]!.length,
+        model: provider.model,
+        error: null,
+      };
     } catch (err) {
       return {
         ok: false,
         latencyMs: Date.now() - start,
         dim: null,
+        model: provider.model,
         error: err instanceof Error ? err.message : String(err),
       };
     }
   }
 
   async embed(texts: string[]): Promise<EmbedOutput> {
+    const active = this.activeModel();
     if (texts.length === 0) {
-      return { vectors: [], provider: this.#current ?? "none" };
+      return { vectors: [], provider: this.#current ?? "none", model: active ?? "" };
+    }
+    if (active === null) {
+      throw new EmbeddingUnavailableError("no embedding provider configured");
     }
     const failures: string[] = [];
     for (const provider of this.providers) {
+      if (provider.model !== active) {
+        failures.push(`${provider.name}: model mismatch (active ${active})`);
+        continue;
+      }
       if (!provider.ready) {
         failures.push(`${provider.name}: cooling down`);
         continue;
       }
       try {
         const vectors = await provider.embed(texts);
-        validateVectors(vectors, texts.length);
+        this.#validateVectors(active, vectors, texts.length);
+        if (this.#establishedDim(active) === undefined) {
+          this.#dims.set(active, vectors[0]!.length);
+        }
         provider.reportSuccess();
         this.#current = provider.name;
-        return { vectors, provider: provider.name };
+        return { vectors, provider: provider.name, model: active };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         provider.reportFailure(message);
@@ -204,10 +247,11 @@ export class EmbeddingRegistry {
   status(): RegistryStatus {
     return {
       current: this.#current,
-      model: EMBEDDING_MODEL,
+      model: this.activeModel() ?? "",
       providers: this.providers.map((p) => ({
         name: p.name,
         kind: p.kind,
+        model: p.model,
         ready: p.ready,
         lastError: p.lastError,
       })),

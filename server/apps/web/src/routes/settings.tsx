@@ -134,6 +134,7 @@ interface EditableProvider {
   rowKey: string;
   name: string;
   baseUrl: string;
+  model: string;
   apiKey: string;
   apiKeyEnv: string;
   weight: string;
@@ -153,6 +154,7 @@ function toEditable(item: ProviderItem): EditableProvider {
     rowKey: `${item.name}`,
     name: item.name,
     baseUrl: item.baseUrl,
+    model: item.model,
     apiKey: "",
     apiKeyEnv: item.apiKeyEnv ?? "",
     weight: String(item.weight),
@@ -164,7 +166,7 @@ function toEditable(item: ProviderItem): EditableProvider {
 
 function normalizeRows(rows: EditableProvider[]): string {
   return rows
-    .map((r) => [r.name.trim(), r.baseUrl.trim(), r.apiKeyEnv.trim(), r.apiKey.trim(), r.weight.trim(), r.timeoutMs.trim(), String(r.enabled)].join("\u0001"))
+    .map((r) => [r.name.trim(), r.baseUrl.trim(), r.model.trim(), r.apiKeyEnv.trim(), r.apiKey.trim(), r.weight.trim(), r.timeoutMs.trim(), String(r.enabled)].join("\u0001"))
     .join("\u0002");
 }
 
@@ -222,6 +224,7 @@ function ProvidersCard() {
       rowKey: `new-${Date.now()}`,
       name: `provider-${rows.length + 1}`,
       baseUrl: "http://127.0.0.1:9100/v1",
+      model: "bge-m3",
       apiKey: "",
       apiKeyEnv: "",
       weight: "10",
@@ -241,15 +244,18 @@ function ProvidersCard() {
     for (const r of rows) {
       const name = r.name.trim();
       const baseUrl = r.baseUrl.trim();
+      const model = r.model.trim();
       const weight = Number(r.weight);
       const timeoutMs = Number(r.timeoutMs);
       if (!name) return "提供商名称不能为空";
       if (!baseUrl) return `「${name || "未命名"}」的 Base URL 不能为空`;
+      if (!model) return `「${name || "未命名"}」的模型不能为空`;
       if (!Number.isInteger(weight) || weight < 0) return `「${name}」的 weight 必须是非负整数`;
       if (!Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 120000) return `「${name}」的超时必须在 1000–120000ms 之间`;
       providers.push({
         name,
         baseUrl,
+        model,
         apiKey: r.apiKey.trim() || undefined,
         apiKeyEnv: r.apiKeyEnv.trim() || undefined,
         weight,
@@ -289,7 +295,7 @@ function ProvidersCard() {
       setTests((prev) => ({
         ...prev,
         [rowKey]: r.ok
-          ? { state: "ok", text: `探针通过 · ${r.latencyMs}ms · ${r.dim} 维` }
+          ? { state: "ok", text: `探针通过 · ${r.model ?? "?"} · ${r.latencyMs}ms · ${r.dim} 维` }
           : { state: "fail", text: r.error ?? "未知错误" },
       }));
     } catch (err) {
@@ -308,7 +314,8 @@ function ProvidersCard() {
           <CardTitle>向量提供商</CardTitle>
         </div>
         <CardDescription>
-          模型全链固定 bge-m3（1024 维），不可配置；weight 越大越优先，失败自动降级并冷却恢复。配置持久化在服务端
+          模型按提供商配置；检索只使用最高优先级已启用提供商的模型空间，切换模型后需重新索引。weight
+          越大越优先，失败自动降级并冷却恢复。配置持久化在服务端
           {data?.file ? <span className="font-mono text-[11px]"> {data.file}</span> : "，保存后即时生效"}
         </CardDescription>
       </CardHeader>
@@ -368,7 +375,7 @@ function ProvidersCard() {
                         删除
                       </Button>
                     </div>
-                    <div className="grid gap-2.5 sm:grid-cols-3">
+                    <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
                       <label className="flex flex-col gap-1">
                         <span className="text-[11px] text-muted-foreground">API Key（留空保持不变）</span>
                         <Input
@@ -386,6 +393,15 @@ function ProvidersCard() {
                           placeholder="如 SH_EMBED_KEY_5070TI"
                           value={row.apiKeyEnv}
                           onChange={(e) => updateRow(row.rowKey, { apiKeyEnv: e.target.value })}
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1">
+                        <span className="text-[11px] text-muted-foreground">模型</span>
+                        <Input
+                          className="font-mono text-xs"
+                          placeholder="如 bge-m3"
+                          value={row.model}
+                          onChange={(e) => updateRow(row.rowKey, { model: e.target.value })}
                         />
                       </label>
                       <div className="grid grid-cols-2 gap-2.5">

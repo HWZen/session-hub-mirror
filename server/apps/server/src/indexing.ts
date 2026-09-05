@@ -1,4 +1,3 @@
-import { EMBEDDING_MODEL } from "@session-hub/shared";
 import type { SqliteDatabase } from "./db/connection.js";
 import { storeEmbeddings } from "./db/embeddings.js";
 import type { SessionRepository } from "./db/sessions.js";
@@ -15,17 +14,22 @@ export class SessionIndexer {
     try {
       const rows = this.repo.messageTexts(sessionId);
       if (rows.length === 0) {
-        this.repo.setIndexed(sessionId, EMBEDDING_MODEL);
+        const activeModel = this.registry.activeModel();
+        if (activeModel === null) {
+          return false;
+        }
+        this.repo.setIndexed(sessionId, activeModel);
         return true;
       }
-      const { vectors, provider } = await this.registry.embed(rows.map((r) => r.text));
+      const { vectors, provider, model } = await this.registry.embed(rows.map((r) => r.text));
       storeEmbeddings(
         this.db,
         sessionId,
+        model,
         rows.map((row, i) => ({ messageId: row.id, vector: vectors[i]! })),
       );
-      this.repo.setIndexed(sessionId, EMBEDDING_MODEL);
-      console.log(`[index] session=${sessionId} messages=${rows.length} provider=${provider}`);
+      this.repo.setIndexed(sessionId, model);
+      console.log(`[index] session=${sessionId} messages=${rows.length} provider=${provider} model=${model}`);
       return true;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

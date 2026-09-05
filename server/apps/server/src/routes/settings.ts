@@ -39,6 +39,7 @@ export function settingsRoutes(deps: SettingsRouteDeps): Hono {
       return {
         name: p.name,
         baseUrl: p.baseUrl,
+        model: p.model,
         apiKeyEnv: p.apiKeyEnv ?? null,
         weight: p.weight,
         enabled: p.enabled,
@@ -86,12 +87,12 @@ export function settingsRoutes(deps: SettingsRouteDeps): Hono {
   });
 
   app.post("/reindex", async (c) => {
-    const sessions = deps.repo.listUnindexed(REINDEX_BATCH);
+    const sessions = deps.repo.listUnindexed(REINDEX_BATCH, deps.registry.activeModel());
     let indexed = 0;
     for (const session of sessions) {
       if (await deps.indexer.indexSession(session.id)) indexed++;
     }
-    const remaining = deps.repo.listUnindexed(1).length;
+    const remaining = deps.repo.listUnindexed(1, deps.registry.activeModel()).length;
     return c.json({ total: sessions.length, indexed, failed: sessions.length - indexed, remaining });
   });
 

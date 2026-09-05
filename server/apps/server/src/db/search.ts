@@ -1,6 +1,6 @@
 import type { SearchHit, SearchSnippet, SessionFilters } from "@session-hub/shared";
 import { buildSessionFilter } from "./sessions.js";
-import { toVectorBlob } from "./embeddings.js";
+import { embeddingTableFor, toVectorBlob } from "./embeddings.js";
 import type { SqliteDatabase } from "./connection.js";
 
 const SNIPPET_MAX_CHARS = 500;
@@ -29,19 +29,26 @@ function truncate(text: string): string {
   return text.length <= SNIPPET_MAX_CHARS ? text : `${text.slice(0, SNIPPET_MAX_CHARS)}…`;
 }
 
+function hasTable(db: SqliteDatabase, name: string): boolean {
+  return db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) !== undefined;
+}
+
 export function searchSessions(
   db: SqliteDatabase,
+  model: string,
   queryVector: Float32Array,
   topK: number,
   filters: SessionFilters,
 ): SearchHit[] {
+  const table = embeddingTableFor(model);
+  if (!hasTable(db, table)) return [];
   const { sql: where, params } = buildSessionFilter(filters);
   const k = Math.min(Math.max(topK * 20, topK), 512);
   const rows = db
     .prepare(
       `WITH knn AS (
          SELECT message_id, distance
-         FROM message_embeddings
+         FROM ${table}
          WHERE embedding MATCH ? AND k = ?
        )
        SELECT knn.distance AS distance, m.idx AS message_idx, m.role AS role, m.text AS text, m.ts AS ts,

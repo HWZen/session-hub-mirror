@@ -143,9 +143,10 @@ describe("loadConfig", () => {
   });
 
   it("returns null without config", () => {
-    expect(loadConfig({})).toBeNull();
-    expect(loadConfig({ SESSION_HUB_URL: "not a url", SESSION_HUB_TOKEN: "t" })).toBeNull();
-    expect(loadConfig({ SESSION_HUB_URL: "http://x", SESSION_HUB_TOKEN: "" })).toBeNull();
+    const missingPath = "does-not-exist-config.json";
+    expect(loadConfig({}, missingPath)).toBeNull();
+    expect(loadConfig({ SESSION_HUB_URL: "not a url", SESSION_HUB_TOKEN: "t" }, missingPath)).toBeNull();
+    expect(loadConfig({ SESSION_HUB_URL: "http://x", SESSION_HUB_TOKEN: "" }, missingPath)).toBeNull();
   });
 
   it("normalizes trailing slash", () => {

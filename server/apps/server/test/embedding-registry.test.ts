@@ -14,6 +14,7 @@ describe("embedding registry", () => {
     const registry = new EmbeddingRegistry([failing, fake]);
     const out = await registry.embed(["hello"]);
     expect(out.provider).toBe("second");
+    expect(out.model).toBe("bge-m3");
     expect(out.vectors[0]!.length).toBe(1024);
     expect(failing.calls).toBe(1);
     expect(failing.lastError).toBe("boom");
@@ -31,10 +32,51 @@ describe("embedding registry", () => {
     expect(failing.calls).toBe(2);
   });
 
-  it("rejects wrong-dimension vectors and falls through", async () => {
+  it("activeModel is the model of the highest-weight provider", () => {
+    const bge = new FakeEmbedProvider("low-bge", "bge-m3", 10);
+    const qwen = new FakeEmbedProvider("high-qwen", "qwen3-embedding:8b", 100);
+    expect(new EmbeddingRegistry([bge, qwen]).activeModel()).toBe("qwen3-embedding:8b");
+    expect(new EmbeddingRegistry([qwen, bge]).activeModel()).toBe("qwen3-embedding:8b");
+    expect(new EmbeddingRegistry([]).activeModel()).toBeNull();
+  });
+
+  it("embed skips providers with a different model and never crosses model spaces", async () => {
+    const bge = new FakeEmbedProvider("low-bge", "bge-m3", 10);
+    const qwen = new FakeEmbedProvider("high-qwen", "qwen3-embedding:8b", 100, 4096);
+    const registry = new EmbeddingRegistry([bge, qwen]);
+    const out = await registry.embed(["hello"]);
+    expect(out.provider).toBe("high-qwen");
+    expect(out.model).toBe("qwen3-embedding:8b");
+    expect(out.vectors[0]!.length).toBe(4096);
+    expect(bge.calls).toBe(0);
+  });
+
+  it("fails over only within the same model space", async () => {
+    const failingQwen = new FailingEmbedProvider("qwen-broken", "qwen3-embedding:8b", 100);
+    const qwen = new FakeEmbedProvider("qwen-backup", "qwen3-embedding:8b", 90, 4096);
+    const bge = new FakeEmbedProvider("bge", "bge-m3", 10);
+    const registry = new EmbeddingRegistry([failingQwen, bge, qwen]);
+    const out = await registry.embed(["hello"]);
+    expect(out.provider).toBe("qwen-backup");
+    expect(out.model).toBe("qwen3-embedding:8b");
+    expect(bge.calls).toBe(0);
+  });
+
+  it("throws when no same-model provider succeeds", async () => {
+    const failingQwen = new FailingEmbedProvider("qwen-broken", "qwen3-embedding:8b", 100);
+    const bge = new FakeEmbedProvider("bge", "bge-m3", 10);
+    const registry = new EmbeddingRegistry([failingQwen, bge]);
+    await expect(registry.embed(["x"])).rejects.toBeInstanceOf(EmbeddingUnavailableError);
+    expect(bge.calls).toBe(0);
+  });
+
+  it("rejects vectors inconsistent with the established model space and falls through", async () => {
     const bad = new BadDimEmbedProvider("bad");
-    const fake = new FakeEmbedProvider("good");
-    const registry = new EmbeddingRegistry([bad, fake]);
+    const good = new FakeEmbedProvider("good");
+    const registry = new EmbeddingRegistry([bad, good]);
+    const probe = await registry.testProvider("good");
+    expect(probe.ok).toBe(true);
+    expect(probe.dim).toBe(1024);
     const out = await registry.embed(["x"]);
     expect(out.provider).toBe("good");
     expect(bad.lastError).toContain("512-dim");
@@ -53,13 +95,25 @@ describe("embedding registry", () => {
     expect(Math.sqrt(dist)).toBeCloseTo(0, 5);
   });
 
-  it("status reports provider health", () => {
-    const failing = new FailingEmbedProvider("first");
-    const registry = new EmbeddingRegistry([failing]);
+  it("status reports active model and per-provider model", () => {
+    const failing = new FailingEmbedProvider("failing-bge", "bge-m3", 100);
+    const qwen = new FakeEmbedProvider("qwen", "qwen3-embedding:8b", 500);
+    const registry = new EmbeddingRegistry([failing, qwen]);
     const before = registry.status();
-    expect(before.model).toBe("bge-m3");
+    expect(before.model).toBe("qwen3-embedding:8b");
     expect(before.current).toBeNull();
+    expect(before.providers.map((p) => p.model)).toEqual(["bge-m3", "qwen3-embedding:8b"]);
     expect(before.providers[0]!.ready).toBe(true);
+  });
+
+  it("testProvider returns each provider's own model and dim", async () => {
+    const bge = new FakeEmbedProvider("bge", "bge-m3", 10, 1024);
+    const qwen = new FakeEmbedProvider("qwen", "qwen3-embedding:8b", 100, 4096);
+    const registry = new EmbeddingRegistry([bge, qwen]);
+    const bgeResult = await registry.testProvider("bge");
+    expect(bgeResult).toMatchObject({ ok: true, model: "bge-m3", dim: 1024 });
+    const qwenResult = await registry.testProvider("qwen");
+    expect(qwenResult).toMatchObject({ ok: true, model: "qwen3-embedding:8b", dim: 4096 });
   });
 });
 
@@ -67,19 +121,20 @@ describe("remote provider config", () => {
   it("orders by weight desc, filters disabled, resolves apiKeyEnv", () => {
     const providers = createRemoteProviders(
       [
-        { name: "low", baseUrl: "http://h1/v1", weight: 10, enabled: true },
-        { name: "high", baseUrl: "http://h2/v1", apiKeyEnv: "MY_KEY", weight: 90, enabled: true },
-        { name: "off", baseUrl: "http://h3/v1", weight: 99, enabled: false },
+        { name: "low", baseUrl: "http://h1/v1", model: "bge-m3", weight: 10, enabled: true },
+        { name: "high", baseUrl: "http://h2/v1", model: "qwen3-embedding:8b", apiKeyEnv: "MY_KEY", weight: 90, enabled: true },
+        { name: "off", baseUrl: "http://h3/v1", model: "bge-m3", weight: 99, enabled: false },
       ],
       { MY_KEY: "secret-key" },
     );
     expect(providers.map((p) => p.name)).toEqual(["high", "low"]);
     expect(providers[0]!.config.name).toBe("high");
+    expect(providers[0]!.model).toBe("qwen3-embedding:8b");
   });
 
   it("returns [] when nothing enabled", () => {
     const providers = createRemoteProviders(
-      [{ name: "off", baseUrl: "http://h/v1", enabled: false }],
+      [{ name: "off", baseUrl: "http://h/v1", model: "bge-m3", enabled: false }],
       {},
     );
     expect(providers).toHaveLength(0);

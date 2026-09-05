@@ -40,11 +40,12 @@ export class FakeEmbedProvider implements EmbedProvider {
   lastError: string | null = null;
   #calls = 0;
 
-  constructor(readonly name = "fake") {}
-
-  get priority(): number {
-    return 1000;
-  }
+  constructor(
+    readonly name = "fake",
+    readonly model = "bge-m3",
+    readonly priority = 1000,
+    private readonly dims = 1024,
+  ) {}
 
   get ready(): boolean {
     return Date.now() >= this.cooldownUntil;
@@ -56,7 +57,7 @@ export class FakeEmbedProvider implements EmbedProvider {
 
   async embed(texts: string[]): Promise<Float32Array[]> {
     this.#calls++;
-    return texts.map((t) => hashVector(t));
+    return texts.map((t) => hashVector(t, this.dims));
   }
 
   reportSuccess(): void {}
@@ -70,11 +71,11 @@ export class FailingEmbedProvider implements EmbedProvider {
   lastError: string | null = null;
   #calls = 0;
 
-  constructor(readonly name = "failing") {}
-
-  get priority(): number {
-    return 2000;
-  }
+  constructor(
+    readonly name = "failing",
+    readonly model = "bge-m3",
+    readonly priority = 2000,
+  ) {}
 
   get ready(): boolean {
     return Date.now() >= this.cooldownUntil;
@@ -102,18 +103,19 @@ export class BadDimEmbedProvider implements EmbedProvider {
   cooldownUntil = 0;
   lastError: string | null = null;
 
-  constructor(readonly name = "bad-dim") {}
-
-  get priority(): number {
-    return 1500;
-  }
+  constructor(
+    readonly name = "bad-dim",
+    readonly model = "bge-m3",
+    readonly priority = 1500,
+    private readonly dims = 512,
+  ) {}
 
   get ready(): boolean {
     return true;
   }
 
   async embed(texts: string[]): Promise<Float32Array[]> {
-    return texts.map(() => new Float32Array(512));
+    return texts.map(() => new Float32Array(this.dims));
   }
 
   reportSuccess(): void {}

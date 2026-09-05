@@ -17,6 +17,7 @@ export type ProviderKeySource = "inline" | "env" | "none";
 export interface ProviderSettingsItem {
   name: string;
   baseUrl: string;
+  model: string;
   apiKeyEnv: string | null;
   weight: number;
   enabled: boolean;
@@ -34,6 +35,7 @@ export interface ProviderTestResult {
   ok: boolean;
   latencyMs: number | null;
   dim: number | null;
+  model: string | null;
   error: string | null;
 }
 

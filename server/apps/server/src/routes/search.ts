@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { EMBEDDING_MODEL, searchRequestSchema } from "@session-hub/shared";
+import { searchRequestSchema } from "@session-hub/shared";
 import type { SqliteDatabase } from "../db/connection.js";
 import { searchSessions } from "../db/search.js";
 import { EmbeddingUnavailableError, type EmbeddingRegistry } from "../embedding/registry.js";
@@ -27,10 +27,12 @@ export function searchRoutes(deps: SearchRouteDeps): Hono {
     }
     const topK = parsed.data.top_k ?? DEFAULT_TOP_K;
     let provider: string;
+    let model: string;
     let vector: Float32Array;
     try {
       const output = await deps.registry.embed([parsed.data.query]);
       provider = output.provider;
+      model = output.model;
       vector = output.vectors[0]!;
     } catch (err) {
       if (err instanceof EmbeddingUnavailableError) {
@@ -38,8 +40,8 @@ export function searchRoutes(deps: SearchRouteDeps): Hono {
       }
       throw err;
     }
-    const results = searchSessions(deps.db, vector, topK, parsed.data.filters ?? {});
-    return c.json({ model: EMBEDDING_MODEL, provider, results });
+    const results = searchSessions(deps.db, model, vector, topK, parsed.data.filters ?? {});
+    return c.json({ model, provider, results });
   });
 
   return app;

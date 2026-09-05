@@ -26,6 +26,7 @@ export type ReindexResponse = ReindexResult;
 export interface ProviderSettingsInput {
   name: string;
   baseUrl: string;
+  model: string;
   apiKey?: string;
   apiKeyEnv?: string;
   weight: number;
