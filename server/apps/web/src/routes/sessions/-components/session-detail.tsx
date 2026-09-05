@@ -23,6 +23,7 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
     queryFn: () => api.getSession(sessionId),
     retry: false,
   });
+  const health = useQuery({ queryKey: ["health"], queryFn: () => api.health() });
 
   if (detail.isLoading) {
     return (
@@ -61,14 +62,11 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
               <Badge variant="outline" className="font-mono">
                 {s.machine}
               </Badge>
-              {s.indexed_at ? (
-                <Badge variant="success">
-                  <ListChecksIcon className="size-3" />
-                  已索引
-                </Badge>
-              ) : (
-                <Badge variant="warning">未索引</Badge>
-              )}
+              <IndexBadge
+                indexedAt={s.indexed_at}
+                indexedModel={s.indexed_model}
+                activeModel={health.data?.embedding.model ?? null}
+              />
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
               <span>创建 {formatTime(s.created_at)}</span>
@@ -95,6 +93,43 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
         </div>
       </div>
     </div>
+  );
+}
+
+function IndexBadge({
+  indexedAt,
+  indexedModel,
+  activeModel,
+}: {
+  indexedAt: number | null;
+  indexedModel: string | null;
+  activeModel: string | null;
+}) {
+  if (indexedAt === null) {
+    return <Badge variant="warning">未索引</Badge>;
+  }
+  const model = indexedModel ?? "";
+  if (activeModel === null || activeModel === "") {
+    return (
+      <Badge variant="warning" title="活跃模型未知（提供商未配置或健康信息未加载），无法确认检索是否覆盖当前模型空间">
+        <ListChecksIcon className="size-3" />
+        已索引{model ? ` · ${model}` : ""}
+      </Badge>
+    );
+  }
+  if (indexedModel === activeModel) {
+    return (
+      <Badge variant="success">
+        <ListChecksIcon className="size-3" />
+        已索引{model ? ` · ${model}` : ""}
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="warning" title="当前模型空间未索引，检索覆盖不到，等待后台补索引或手动重建">
+      <ListChecksIcon className="size-3" />
+      已索引(旧模型 {model || "未知"})
+    </Badge>
   );
 }
 

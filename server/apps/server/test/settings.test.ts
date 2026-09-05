@@ -113,6 +113,25 @@ describe("settings providers", () => {
     expect(health.embedding.providers.map((p) => p.name)).toEqual(["zeta"]);
   });
 
+  it("PUT 保存成功触发 onProvidersSaved（auto-index kick 冒烟），校验失败不触发", async () => {
+    let kicks = 0;
+    const { app } = buildApp(TEST_TOKEN, undefined, undefined, (parts) =>
+      makeSettingsDeps(parts, {
+        onProvidersSaved: () => {
+          kicks++;
+        },
+      }),
+    );
+    const bad = await settingsRequest(app, "PUT", "/providers", { providers: [{ name: "x" }] });
+    expect(bad.status).toBe(400);
+    expect(kicks).toBe(0);
+    const ok = await settingsRequest(app, "PUT", "/providers", {
+      providers: [{ name: "gpu-a", baseUrl: "http://127.0.0.1:9100/v1", weight: 100, enabled: true }],
+    });
+    expect(ok.status).toBe(200);
+    expect(kicks).toBe(1);
+  });
+
   it("未保存的非法 body 返回 400", async () => {
     const { app } = buildApp(TEST_TOKEN, undefined, undefined, (parts) => makeSettingsDeps(parts));
     const res = await settingsRequest(app, "PUT", "/providers", { providers: [{ name: "x" }] });

@@ -14,6 +14,7 @@ export interface SettingsRouteDeps {
   repo: SessionRepository;
   indexer: SessionIndexer;
   env: NodeJS.ProcessEnv;
+  onProvidersSaved?: (() => void) | undefined;
 }
 
 function maskKey(key: string): string {
@@ -70,6 +71,7 @@ export function settingsRoutes(deps: SettingsRouteDeps): Hono {
     });
     deps.store.save(merged);
     deps.registry.replaceRemoteProviders(createRemoteProviders(merged, deps.env));
+    deps.onProvidersSaved?.();
     return c.json({ ok: true, count: merged.length });
   });
 

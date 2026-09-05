@@ -504,7 +504,9 @@ function MaintenanceCard() {
           <DatabaseBackupIcon className="size-4 text-muted-foreground" />
           <CardTitle>维护</CardTitle>
         </div>
-        <CardDescription>为所有未索引的会话补建向量（每次最多 200 条）；总览页出现未索引告警时使用</CardDescription>
+        <CardDescription>
+          服务端运行时会自动为未索引会话补建向量（默认每 30 秒一轮，保存提供商配置后立即提前触发）；此按钮为手动立即触发（每次最多 200 条）
+        </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3 pt-0">
         <div>

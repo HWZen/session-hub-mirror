@@ -11,6 +11,7 @@ const envSchema = z.object({
   SH_PROVIDERS_FILE: z.string().min(1).default("./config/providers.json"),
   SH_PROVIDERS_LOCAL_FILE: z.string().min(1).default("./config/providers.local.json"),
   SH_WEB_DIST: z.string().default(""),
+  SH_AUTO_INDEX_INTERVAL_MS: z.coerce.number().int().min(5000).default(30000),
 });
 
 export type ServerEnv = z.infer<typeof envSchema>;
