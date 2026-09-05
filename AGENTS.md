@@ -68,8 +68,8 @@ docs/                 # 运行手册（后期）
 
 ## Embedding 提供商链
 
-优先级（配置文件驱动）：`5070Ti(frpc) → 4070Ti(frpc) → 云端(待填) → 本地 CPU 兜底`。
-要求：健康检查 + 自动降级 + 恢复回升；全部 OpenAI 兼容 `/v1/embeddings` 接口；同一模型 bge-m3。
+优先级（配置文件驱动）：`5070Ti(frpc) → 4070Ti(frpc) → 云端(待填)`；**无内置本地兜底**，本地推理服务（Ollama 等）按普通 OpenAI 兼容 provider 配置。
+要求：健康检查 + 自动降级 + 恢复回升；全部 OpenAI 兼容 `/v1/embeddings` 接口；同一模型 bge-m3；未配置任何可用提供商时 health 返回 warnings，不静默兜底。
 
 ## 安全
 

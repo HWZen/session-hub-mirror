@@ -41,7 +41,7 @@
 | 部署/隐私 | 私人服务器、明文存储、HTTPS + 固定 token；单人使用；无开源计划 | |
 | 数据存放 | **直接存 NAS（SMB）**；否决"本地+备份"方案 | 必须禁用 WAL，见 §9 风险 |
 | 向量模型 | 全链统一 **bge-m3（1024 维）**，不得更换 | 换模型 = 换向量空间 = 全量重索引 |
-| 向量提供商 | **配置文件驱动**；优先级链：5070Ti(frp) → 4070Ti(frp) → 云端(待填，可走 new-api 网关) → 本地 CPU 兜底 | 健康检查 + 自动降级；降级只换"谁在算"，不换"算什么"；Web 设置页可编辑（只配地址/密钥/权重/开关/超时），写 `config/providers.local.json`（gitignore，优先于样例文件），保存即热更新 |
+| 向量提供商 | **配置文件驱动**；优先级链：5070Ti(frp) → 4070Ti(frp) → 云端(待填，可走 new-api 网关)；**不再内置本地 CPU 兜底**（2026-09-05 变更：服务器 i3+16G 跑不动 fp32 bge-m3，实测峰值 20G+ 内存）；本地推理服务（Ollama/llama.cpp 等）如需要，按普通 OpenAI 兼容 provider 配置即可 | 健康检查 + 自动降级；降级只换"谁在算"，不换"算什么"；未配置任何可用提供商时 health 返回警告、索引/搜索报错，不静默兜底；Web 设置页可编辑（只配地址/密钥/权重/开关/超时），写 `config/providers.local.json`（gitignore，优先于样例文件），保存即热更新 |
 | 技术栈 | TypeScript / Node.js（唯一语言）+ Hono + SQLite + sqlite-vec + Caddy + NSSM | **不用 Docker** |
 | 端范围 | 多台 Windows PC；手机不做；网页端/非 Agent 数据不做 | |
 | v1 信息源 | opencode（钩子）、WorkBuddy（轮询）、豆包（实验性） | |
