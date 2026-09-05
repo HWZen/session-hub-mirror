@@ -1,0 +1,94 @@
+# AGENTS.md — 给在本仓库工作的 AI Agent
+
+## 项目是什么
+
+Session Hub：跨端跨 Agent 的个人会话档案库 + 检索层。只做"存得全、找得到"，零加工。
+**先读 `plan.md`**——它是唯一事实源：需求、决策记录、侦察事实、风险全在里面。
+`plan.md` §3 的决策已定稿，不要重新讨论；要改决策先改 plan.md。
+
+## 开发 SOP（需求 → 计划 → 开发 → 提交）
+
+版本号唯一事实源：**各子系统的 `package.json` 的 `version`**（当前只有服务端子系统：`server/package.json`；
+子包与根编排 package.json 的 version 不维护；`/health` 与前端展示服务端版本）。
+每个新需求占一个版本号，档案落在**所属子系统**的 `develop-doc/<版本号>/`：
+
+1. **规划阶段**（用户提需求，当次会话完成）
+   - 递增所属子系统 `package.json` 的 version：新功能 +0.1（MINOR），破坏性/大重构升首位（MAJOR），小修补丁（PATCH）
+   - 理解需求、侦察现状，写 `<子系统>/develop-doc/<新版本号>/plan.md`：需求描述、方案、涉及文件、任务清单、验收标准
+   - 全局决策仍以根 `plan.md` 为准；若需求要推翻全局决策，先改 `plan.md` 再写本版 plan
+   - 此阶段**不写业务代码**
+2. **开发阶段**（用户新起会话，指令形如"按 develop-doc/<版本号>/plan.md 开发"）
+   - 严格按该版 plan.md 落地；完成标准：根目录 `npm test` + `npm run build` 全绿
+   - 完成后写 `<子系统>/develop-doc/<版本号>/summary.md`：实际改动、与计划的偏差及原因、测试/验收结果、遗留事项
+   - 提交 commit（中文，`模块: 摘要`，可拆多个），只含本版本相关文件
+
+## 技术栈（硬约束）
+
+- **全仓库只用 TypeScript**（服务端、采集器、opencode 插件同一种语言）
+- 服务端：Node.js + Hono；SQLite（better-sqlite3 + sqlite-vec 扩展）
+- 校验：zod；测试：vitest；运行：tsx（dev）/ tsc（build）
+- 包管理：npm（不引入 pnpm/yarn）
+- **不用 Docker**；Windows 服务化用 NSSM
+- 向量模型全链统一 **bge-m3（1024 维）**——任何代码/配置不得引入其他模型；提供商只允许配置"地址/密钥/权重/开关"，不允许配置"模型"
+
+## 存储红线（SQLite on NAS/SMB）
+
+数据库文件在 NAS 的 SMB 挂载上，**禁止启用 WAL**。所有连接必须经共享 DB 模块统一配置：
+`journal_mode=TRUNCATE`、`synchronous=FULL`、`busy_timeout` 合理值。
+新建连接点只允许出现在该共享模块里。
+
+## 仓库结构（规划）
+
+根目录只放**跨子系统**的全局资产（AGENTS.md / plan.md / README.md / .gitignore / npm 编排）；
+每个子系统自成一个子文件夹，自带 `package.json`（版本号事实源）、`develop-doc/`、运行时数据。
+
+```
+packages/shared/      # 跨子系统契约：会话数据模型、类型、配置 schema（服务端/插件/采集器共用）
+server/               # 服务端子系统
+  apps/server/        #   Hono API 服务端
+  apps/web/           #   Web 前端（React + Vite，服务端可静态托管其构建产物）
+  config/             #   providers.json 等配置样例（真实配置 server/config/*.local.json 不入库）
+  develop-doc/<版本号>/#   服务端每个需求一档：plan.md（规划）+ summary.md（完成记录）
+  data/               #   运行时数据（db、模型缓存、日志，gitignore）
+plugins/opencode/     # opencode 官方插件（TS，事件钩子上传；未建）
+apps/collector/       # 采集器守护进程（未建；WorkBuddy 轮询、豆包适配器在此）
+docs/                 # 运行手册（后期）
+```
+
+## 关键外部事实（速查）
+
+| 源 | 本地存储路径 | 采集方式 |
+|---|---|---|
+| opencode | `~/.local/share/opencode/opencode.db`（SQLite） | 插件钩子实时；直读 DB 兜底/回填 |
+| WorkBuddy | `~/.workbuddy/projects/*/*.jsonl` | 轮询（copy-then-read 不需要，可直接读）；用户输入在 `<user_query>` 标签内，过滤 `<system-reminder` |
+| 豆包 | `%LOCALAPPDATA%\Doubao\User Data\Default\IndexedDB\chrome_doubao-chat_0.indexeddb.leveldb` | **实验性**；文件被锁，必须先复制再解析；独立模块可整体停用 |
+
+采集器对源文件**只读**；所有源会话带 `agent`/`machine`/`source_id` 三元组做幂等 upsert；
+时间戳取源数据时间（创建 + 最后修改），不用上传时间。
+
+## Embedding 提供商链
+
+优先级（配置文件驱动）：`5070Ti(frpc) → 4070Ti(frpc) → 云端(待填) → 本地 CPU 兜底`。
+要求：健康检查 + 自动降级 + 恢复回升；全部 OpenAI 兼容 `/v1/embeddings` 接口；同一模型 bge-m3。
+
+## 安全
+
+- 密钥/token 一律走环境变量或 `config/*.local.json`（gitignore），**绝不入库**
+- 会话原文含用户密钥/内网信息：日志里不得打印会话正文，日志只记元数据与统计
+
+## 命令（根目录执行，npm 编排脚本已带 server/ 路径）
+
+```
+npm run dev        # 服务端开发（tsx watch，自动加载 server/.env）
+npm run dev:web    # 前端开发（Vite，代理 /v1 /health 到 7428）
+npm run build      # tsc -b + 前端构建
+npm test
+npm run reindex    # 未索引会话补向量（也可在 Web 设置页触发）
+```
+
+服务端所有相对路径（.env 里的 SH_* 与 .env 文件本身）以 `server/` 为根解析，与启动 cwd 无关。
+
+## 代码风格
+
+- 不写注释，除非逻辑确实自解释不了；公共 API/配置结构用类型与命名表达
+- 提交信息中文，格式 `模块: 摘要`
