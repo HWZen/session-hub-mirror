@@ -44,7 +44,7 @@
 | 向量提供商 | **配置文件驱动**；优先级链：5070Ti(frp) → 4070Ti(frp) → 云端(待填，可走 new-api 网关)；**不再内置本地 CPU 兜底**（2026-09-05 变更：服务器 i3+16G 跑不动 fp32 bge-m3，实测峰值 20G+ 内存）；本地推理服务（Ollama/llama.cpp 等）如需要，按普通 OpenAI 兼容 provider 配置即可 | 健康检查 + 自动降级；降级只换"谁在算"，不换"算什么"（候选集限同模型，见"向量模型"行）；未配置任何可用提供商时 health 返回警告、索引/搜索报错，不静默兜底；Web 设置页可编辑（配地址/密钥/模型/权重/开关/超时），写 `config/providers.local.json`（gitignore，优先于样例文件），保存即热更新 |
 | 技术栈 | TypeScript / Node.js（唯一语言）+ Hono + SQLite + sqlite-vec + Caddy + NSSM | **不用 Docker** |
 | 端范围 | 多台 Windows PC；手机不做；网页端/非 Agent 数据不做 | |
-| v1 信息源 | opencode（钩子）、WorkBuddy（轮询）、豆包（实验性） | |
+| v1 信息源 | opencode（钩子）、WorkBuddy（轮询）、豆包（实验性）、zcode（钩子+回填，2026-09-06 增） | |
 | opencode 历史回填 | 做（本机已有 117 会话） | |
 | 更新/删除策略 | 跟随本地：本地改动/删除即同步（镜像语义），待实现时再细化 | |
 | 时效性 | 钩子源准实时；轮询源分钟级 | |
@@ -70,6 +70,14 @@
 - 已确认含 UTF-16 中文消息内容与请求元数据（sessionId/conversation_id 等）
 - 限制：运行时文件被锁 → **必须 copy-then-read**；仅最近会话的本地缓存，完整历史在云端；Chromium IndexedDB 私有序列化，解析脆弱
 - 采集路线：独立适配器，copy-then-read + 尽力解析；坏了就停用，不阻塞主线
+
+### ZCode ✅
+- 存储：`~/.zcode/cli/db/db.sqlite`（SQLite，WAL 模式；ZCode 运行中即实时写入，readonly 连接可安全读取）
+- 表：`session`（directory/title/time_created/time_updated，ms）/ `message`（data JSON：role、agent、time、semantics）/ `part`（data JSON：text/tool/reasoning 等，工具产出在 tool part 的 state.output）
+- `message.data.semantics.kind` 需过滤：只取 `user_prompt` / `assistant_response`，丢弃 todo_reminder / background_notification / timeline_event 注入物；subagent 是独立 session 行（parent_id 非空）
+- hook：声明式插件（`.zcode-plugin/plugin.json` + hooks/hooks.json，本地目录 marketplace 注册，插件 hook 自动启用）；7 个事件（SessionStart/UserPromptSubmit/PreToolUse/PermissionRequest/PostToolUse/PostToolUseFailure/Stop），无 SessionEnd；hook 同步内联执行，上报必须 spawn detached 后立即 exit 0
+- **实测教训**：hook payload 的 `transcript_path` 临时文件不可靠（仅 UserPromptSubmit 时刻有内容，其余 0 字节且用后即清）——实时采集数据源用 db.sqlite 直读，不依赖 transcript
+- 采集路线：**Stop hook 逐轮全量 upsert**（服务端 upsert 本就是整体替换语义）+ 直读 db.sqlite 的历史回填；插件档 `plugins/zcode/develop-doc/0.1.0/plan.md`
 
 ### 自托管环境
 

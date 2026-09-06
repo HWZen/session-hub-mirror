@@ -1,0 +1,16 @@
+{
+  "name": "@session-hub/zcode-plugin",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "node scripts/build.mjs",
+    "install:plugin": "node scripts/install.mjs",
+    "backfill": "tsx src/backfill.ts"
+  },
+  "devDependencies": {
+    "better-sqlite3": "^13.0.3",
+    "esbuild": "^0.28.2"
+  }
+}

@@ -10,3 +10,5 @@ server/data/
 *.db-shm
 *.db-wal
 *.log
+.scratch/
+.worktrees/
