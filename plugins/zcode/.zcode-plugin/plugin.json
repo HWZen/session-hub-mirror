@@ -1,0 +1,4 @@
+{
+  "name": "session-hub",
+  "description": "Session Hub collector: uploads ZCode sessions to a personal session-hub server"
+}

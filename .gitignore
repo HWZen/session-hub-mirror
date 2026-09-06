@@ -12,3 +12,4 @@ server/data/
 *.log
 .scratch/
 .worktrees/
+plugins/zcode/dist/

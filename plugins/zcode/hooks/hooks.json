@@ -1,0 +1,26 @@
+{
+  "UserPromptSubmit": [
+    {
+      "hooks": [
+        {
+          "type": "process",
+          "command": "node",
+          "args": ["dist/hook.js"],
+          "timeoutMs": 10000
+        }
+      ]
+    }
+  ],
+  "Stop": [
+    {
+      "hooks": [
+        {
+          "type": "process",
+          "command": "node",
+          "args": ["dist/hook.js"],
+          "timeoutMs": 10000
+        }
+      ]
+    }
+  ]
+}
