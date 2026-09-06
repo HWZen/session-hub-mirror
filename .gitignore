@@ -13,3 +13,4 @@ server/data/
 .scratch/
 .worktrees/
 plugins/zcode/dist/
+.zcode/
