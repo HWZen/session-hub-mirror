@@ -4,6 +4,7 @@ import type { SqliteDatabase } from "./db/connection.js";
 import type { SessionRepository } from "./db/sessions.js";
 import type { EmbeddingRegistry } from "./embedding/registry.js";
 import { healthRoutes } from "./routes/health.js";
+import { helpInterceptor, helpRoutes } from "./routes/help.js";
 import { searchRoutes } from "./routes/search.js";
 import { sessionRoutes } from "./routes/sessions.js";
 import { settingsRoutes, type SettingsRouteDeps } from "./routes/settings.js";
@@ -23,6 +24,8 @@ export interface AppDeps {
 export function createApp(deps: AppDeps): Hono {
   const app = new Hono();
   app.use("/v1/*", bearerAuth(deps.token));
+  app.use("/v1/*", helpInterceptor());
+  app.route("/v1/help", helpRoutes());
   app.route("/v1/sessions", sessionRoutes({ repo: deps.repo, onUpserted: deps.onSessionUpserted }));
   app.route("/v1/search", searchRoutes(deps));
   app.route("/v1/stats", statsRoutes(deps));
