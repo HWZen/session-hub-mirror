@@ -19,7 +19,9 @@
 - hook 事件共 7 个：SessionStart / UserPromptSubmit / PreToolUse / PermissionRequest / PostToolUse / PostToolUseFailure / Stop，**无 SessionEnd**
 - hook 触发时 stdin 收单行 JSON payload；`session_id` 与 `cwd`、`timestamp` 均有；payload 同时带 camelCase 与 snake_case 双份字段（`sessionId`/`session_id` 等）
 - hook 是**同步内联执行**：hook 进程不退出，ZCode 就停着等 → 上报逻辑必须 spawn detached 子进程后立即 `exit 0`
-- **关键实测（推翻上一会话假设）**：`transcript_path` 指向的临时 JSONL **不可靠**——探针在 7 类事件触发时复制该文件（含 250ms×20 重试），只有 UserPromptSubmit 时刻有内容（且仅到当前 prompt 为止），其余全为 0 字节，临时目录在 hook 返回后即被清理。**实时采集不能依赖 transcript**
+- **实测（探针采样 7 事件 ×110 次）**：`transcript_path` 临时文件不可靠——只有 UserPromptSubmit（1 行 = 刚提交的 user 消息）和 Stop（1 行 = 本轮最后一条 assistant 消息）有内容，其余全 0 字节，临时目录用后即清。**transcript 不采用**
+- 但 **hook payload 本身信息量足**：UserPromptSubmit 带 `prompt` 全文，PostToolUse/PostToolUseFailure 带 `toolName`/`toolInput`/`toolResponse` 全文，Stop 带 `responseText`/`last_assistant_message`/`cwd`/`timestamp`/`toolCallCount`；缺中间 assistant 文本与 reasoning
+- **payload 的 `session_id` 与 db.sqlite 的 `session.id` 是同一 ID 体系**（实测以探针抓到的 id 精确命中 db 会话行）→ payload 作触发器与身份来源，db 作内容来源，二者无缝对应
 - **真正的实时数据源是 db.sqlite**：`~/.zcode/cli/db/db.sqlite`（WAL 模式），ZCode 运行中即实时写入（本会话进行中实测：session 行 time_updated 实时前进、message/part 逐条落库）。readonly 连接读 WAL 库无冲突
 - db.sqlite 关键表：
   - `session(id, project_id, parent_id, directory, title, time_created, time_updated, ...)`，时间戳均为 ms epoch
@@ -35,20 +37,22 @@
 
 ## 方案
 
-### 数据流
+### 数据流（定稿：payload 定身份与时机，db 补内容）
 
 ```
-Stop hook（每轮结束，ZCode 内联等待）
+UserPromptSubmit / Stop hook（ZCode 内联等待）
   └─ dist/hook.js：stdin 读 payload → 取 session_id
        → spawn detached `node dist/worker.js <payload文件>` → 立即 exit 0
-            └─ worker：readonly 打开 db.sqlite
-                 → 按 session_id 读 session + messages + parts
-                 → transform（见下）→ PUT /v1/sessions（Bearer token）
+            └─ worker：
+                 身份/元数据 ← payload（source_id = session_id、cwd、触发时间戳）
+                 会话内容    ← readonly 读 db.sqlite（按 session_id 取
+                               session + messages + parts，见映射表）
+                 → transform → PUT /v1/sessions（Bearer token）
 ```
 
-回填 CLI 与 worker 共用 db 读取 + transform 代码。
+订阅 UserPromptSubmit + Stop 两个事件：前者让会话在用户输入后即建档（尽早可见），后者在每轮内容落库后全量刷新。不订阅其余 5 个事件（工具等正文数据由 db 统一提供，避免多事件拼装的复杂度）。回填 CLI 与 worker 共用 db 读取 + transform 代码。
 
-### transcript→messages 映射定稿（db.sqlite → sessionUpsertSchema）
+### db.sqlite → sessionUpsertSchema 映射定稿
 
 | 目标字段 | 来源 | 规则 |
 |---|---|---|
@@ -70,8 +74,8 @@ Stop hook（每轮结束，ZCode 内联等待）
 
 ### 实时增量刷新语义
 
-- 订阅**仅 Stop** 一个事件（其余事件数据零散且 transcript 不可靠，不订阅）
-- Stop 每轮触发一次 → worker 读**该会话全量** → `PUT /v1/sessions` 幂等 upsert（服务端整体替换）。无本地状态、无去重，重复上传安全
+- 订阅 **UserPromptSubmit + Stop**（payload 定触发时机与身份；正文统一走 db，含 reasoning 与中间 assistant 文本，与回填口径一致）
+- 每次触发 → worker 读**该会话全量** → `PUT /v1/sessions` 幂等 upsert（服务端整体替换）。无本地状态、无去重、无拼装，重复上传安全
 - 代价：每轮全量重传 + 服务端重灌索引。单人使用、轮次粒度，可接受；与 opencode 插件 session.idle 全量刷新同构。若后期量级上来，再加"updated_at 未变则跳过"的本地状态文件优化
 
 ### 配置
@@ -94,7 +98,7 @@ Stop hook（每轮结束，ZCode 内联等待）
 plugins/zcode/
   package.json                 # @session-hub/zcode-plugin 0.1.0（已建）
   .zcode-plugin/plugin.json    # manifest
-  hooks/hooks.json             # Stop → dist/hook.js
+  hooks/hooks.json             # UserPromptSubmit + Stop → dist/hook.js
   src/hook.ts                  # stdin → detached spawn → exit 0
   src/worker.ts                # db 读取 + transform + upload
   src/transform.ts             # 纯函数映射（单测对象）
@@ -110,7 +114,8 @@ plugins/zcode/
 
 ## 任务清单
 
-- [ ] 验证 Stop 事件 payload（本轮探针已落 events.log，确认含 session_id/cwd）与 hooks.json 相对路径解析
+- [x] 验证探针采样：7 事件 payload 字段、transcript 不可靠、payload session_id ↔ db session.id 同源（本档侦察事实）
+- [ ] 开发期实测：Stop 触发瞬间 db 是否已含本轮最后一条 assistant 消息（决定 worker 是否需要短重试）
 - [ ] src/transform.ts + 单测（用真实 db 行结构 fixture）
 - [ ] src/config.ts / worker.ts / hook.ts + 单测
 - [ ] src/backfill.ts + dry-run 验证
@@ -132,7 +137,7 @@ plugins/zcode/
 
 | 风险 | 对策 |
 |---|---|
-| Stop payload 缺 session_id（未实测） | 开发阶段第一任务实测确认；若缺失改订阅 UserPromptSubmit 之外仍无法兜底时，worker 按 db 最新活跃 session 匹配 cwd+时间窗 |
+| Stop 触发时 db 尚未刷入最后一条 assistant 消息 | 开发期首任务实测；若存在延迟，worker 内短重试（≤2s）后再读 |
 | hooks.json 相对路径不解析 / node 不在 hook 环境 PATH | install.mjs 生成绝对路径 hooks 配置兜底 |
 | better-sqlite3 为 native 模块，esbuild 需 external | 产物依赖仓库 node_modules；单人本机部署可接受，worker 启动时 fail-fast 报缺失 |
 | db.sqlite 读取与 ZCode 写入冲突（WAL） | readonly 连接已实测可行；worker 内 busy_timeout + 单次重试 |
