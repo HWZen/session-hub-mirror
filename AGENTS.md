@@ -10,7 +10,8 @@ Session Hub：跨端跨 Agent 的个人会话档案库 + 检索层。只做"存�
 
 版本号唯一事实源：**各子系统的 `package.json` 的 `version`**（当前只有服务端子系统：`server/package.json`；
 子包与根编排 package.json 的 version 不维护；`/health` 与前端展示服务端版本）。
-每个新需求占一个版本号，档案落在**所属子系统**的 `develop-doc/<版本号>/`：
+每个新需求占一个版本号，档案落在**所属子系统**的 `develop-doc/<版本号>/`
+（并行开发时规划、开发、提交均在对应 worktree 内执行，见"并行开发（worktree 工作流）"）：
 
 1. **规划阶段**（用户提需求，当次会话完成）
    - 递增所属子系统 `package.json` 的 version：新功能 +0.1（MINOR），破坏性/大重构升首位（MAJOR），小修补丁（PATCH）
@@ -21,6 +22,23 @@ Session Hub：跨端跨 Agent 的个人会话档案库 + 检索层。只做"存�
    - 严格按该版 plan.md 落地；完成标准：根目录 `npm test` + `npm run build` 全绿
    - 完成后写 `<子系统>/develop-doc/<版本号>/summary.md`：实际改动、与计划的偏差及原因、测试/验收结果、遗留事项
    - 提交 commit（中文，`模块: 摘要`，可拆多个），只含本版本相关文件
+
+## 并行开发（worktree 工作流）
+
+用户提需求后**新建分支 + worktree，之后该需求的所有工作（规划、开发、测试、提交）都在 worktree 内进行**；
+master 主工作区只保留已合并内容，不再直接开发。
+
+1. 建分支与 worktree：分支名 `<版本号>-<模块名>-dev`（模块名标明改动所属子系统，如 `server`、`opencode-plugin`、`collector`），worktree 放仓库内 `.worktrees/<分支名>/`（已 gitignore）：
+   `git worktree add .worktrees/<分支名> -b <分支名>`（如 `.worktrees/0.9.0-server-dev`）
+2. worktree 初始化（gitignore 的文件不会随 worktree 出现，需从主工作区拷贝）：
+   - `server/.env` → 拷贝后**必改两处**：`PORT`（避开 7428，用如 7429+）、`SH_DB_PATH`（指向本 worktree 自己的 `server/data/`）
+   - `server/config/providers.local.json`（embedding 真实配置，含密钥）
+   - 数据库：把主工作区 `server/data/session-hub.db` 拷到 worktree 自己的 `server/data/`；**拷贝前停掉主工作区服务端**，否则快照可能不一致；模型缓存 `server/data/models/` 不拷，会自动重建
+   - **红线：两个工作区绝不能指向同一个 db 文件**（尤其 NAS 路径），各自用本地拷贝
+3. 测试与运行（全在 worktree 内）：
+   - `npm test` / `npm run build`（完成标准不变）
+   - `npm run dev` 用 worktree 自己的 `.env` 端口；前端联调 `SH_API_PORT=<端口> npm run dev:web`（Vite 代理目标跟随该变量，默认 7428）
+4. 收尾：合并回 master 后 `git branch -d <分支名>`；worktree 保留不删
 
 ## 技术栈（硬约束）
 
@@ -80,7 +98,7 @@ docs/                 # 运行手册（后期）
 
 ```
 npm run dev        # 服务端开发（tsx watch，自动加载 server/.env）
-npm run dev:web    # 前端开发（Vite，代理 /v1 /health 到 7428）
+npm run dev:web    # 前端开发（Vite，代理 /v1 /health 到 SH_API_PORT，默认 7428）
 npm run build      # tsc -b + 前端构建
 npm test
 npm run reindex    # 未索引会话补向量（也可在 Web 设置页触发）
