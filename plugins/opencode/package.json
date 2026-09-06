@@ -1,13 +1,15 @@
 {
   "name": "@session-hub/opencode-plugin",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "install:plugin": "node scripts/install.mjs",
     "backfill": "tsx src/backfill.ts"
   },
   "devDependencies": {
-    "@opencode-ai/plugin": "^1.18.29"
+    "@opencode-ai/plugin": "^1.18.29",
+    "esbuild": "^0.28.2"
   }
 }
