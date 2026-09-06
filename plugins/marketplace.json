@@ -1,0 +1,10 @@
+{
+  "name": "session-hub-local",
+  "plugins": [
+    {
+      "name": "session-hub",
+      "description": "Session Hub collector: uploads ZCode sessions to a personal session-hub server",
+      "source": "zcode"
+    }
+  ]
+}
