@@ -68,6 +68,7 @@ server/               # 服务端子系统
   config/             #   providers.json 等配置样例（真实配置 server/config/*.local.json 不入库）
   develop-doc/<版本号>/#   服务端每个需求一档：plan.md（规划）+ summary.md（完成记录）
   data/               #   运行时数据（db、模型缓存、日志，gitignore）
+skills/session-hub/   # Agent Skill（SKILL.md：教外部 Agent 直调 HTTP API；接口动态发现不固化）
 plugins/opencode/     # opencode 官方插件（TS，事件钩子上传；未建）
 apps/collector/       # 采集器守护进程（未建；WorkBuddy 轮询、豆包适配器在此）
 docs/                 # 运行手册（后期）
