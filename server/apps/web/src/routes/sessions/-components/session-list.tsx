@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeftIcon, ArrowRightIcon, BoxesIcon, LoaderCircleIcon, RotateCcwIcon, Trash2Icon } from "lucide-react";
@@ -18,18 +18,25 @@ export function SessionList({ activeSessionId }: { activeSessionId?: string }) {
   const queryClient = useQueryClient();
   const [agent, setAgent] = useState("");
   const [machine, setMachine] = useState("");
+  const [titleInput, setTitleInput] = useState("");
+  const [title, setTitle] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [page, setPage] = useState(0);
   const [pendingDelete, setPendingDelete] = useState<SessionListItem | null>(null);
 
   const stats = useQuery({ queryKey: ["stats"], queryFn: () => api.stats() });
   const fromMs = fromDate ? new Date(`${fromDate}T00:00:00`).getTime() : undefined;
+  useEffect(() => {
+    const timer = setTimeout(() => setTitle(titleInput.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [titleInput]);
   const list = useQuery({
-    queryKey: ["sessions", "page", agent, machine, fromMs ?? 0, page],
+    queryKey: ["sessions", "page", agent, machine, title, fromMs ?? 0, page],
     queryFn: () =>
       api.listSessions({
         agent: agent || undefined,
         machine: machine || undefined,
+        title: title || undefined,
         created_from: fromMs,
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
@@ -59,6 +66,8 @@ export function SessionList({ activeSessionId }: { activeSessionId?: string }) {
   function resetFilters(): void {
     setAgent("");
     setMachine("");
+    setTitleInput("");
+    setTitle("");
     setFromDate("");
     setPage(0);
   }
@@ -112,6 +121,16 @@ export function SessionList({ activeSessionId }: { activeSessionId?: string }) {
             </option>
           ))}
         </Select>
+        <Input
+          value={titleInput}
+          onChange={(e) => {
+            setTitleInput(e.target.value);
+            setPage(0);
+          }}
+          className="col-span-2 h-8 text-xs"
+          placeholder="按标题过滤…"
+          aria-label="按标题过滤"
+        />
         <Input
           type="date"
           value={fromDate}

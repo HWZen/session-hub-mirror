@@ -1,5 +1,7 @@
 import { loadConnection } from "@/lib/settings";
 import type {
+  GrepHit,
+  GrepResponse,
   HealthStatus,
   ProviderSettingsItem,
   ProviderTestResult,
@@ -14,7 +16,7 @@ import type {
   UpsertResult,
 } from "@session-hub/shared";
 
-export type { SearchHit, SearchResponse, SessionDetail, SessionListItem, SessionListResponse };
+export type { GrepHit, GrepResponse, SearchHit, SearchResponse, SessionDetail, SessionListItem, SessionListResponse };
 export type HealthResponse = HealthStatus;
 export type StatsResponse = StatsSummary;
 export type UpsertResponse = UpsertResult;
@@ -50,6 +52,23 @@ export interface SessionSearchBody {
 export interface SessionListParams {
   agent?: string | undefined;
   machine?: string | undefined;
+  source_id?: string | undefined;
+  title?: string | undefined;
+  created_from?: number | undefined;
+  created_to?: number | undefined;
+  updated_from?: number | undefined;
+  updated_to?: number | undefined;
+  limit?: number | undefined;
+  offset?: number | undefined;
+}
+
+export interface GrepParams {
+  q: string;
+  case_sensitive?: boolean | undefined;
+  agent?: string | undefined;
+  machine?: string | undefined;
+  source_id?: string | undefined;
+  title?: string | undefined;
   created_from?: number | undefined;
   created_to?: number | undefined;
   updated_from?: number | undefined;
@@ -68,7 +87,7 @@ export class ApiError extends Error {
   }
 }
 
-function buildQuery(params: SessionListParams): string {
+function buildQuery(params: object): string {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== "") search.set(key, String(value));
@@ -132,6 +151,9 @@ export const api = {
   },
   search(body: SessionSearchBody): Promise<SearchResponse> {
     return request("/v1/search", { method: "POST", body: JSON.stringify(body) });
+  },
+  grep(params: GrepParams): Promise<GrepResponse> {
+    return request(`/v1/grep${buildQuery(params)}`);
   },
   health(): Promise<HealthResponse> {
     return request("/health");
