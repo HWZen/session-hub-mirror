@@ -25,7 +25,15 @@ export interface BackfillCounters {
   skipped_since: number;
 }
 
-export function parseArgs(argv: string[]): BackfillOptions | null {
+export interface RawArgs {
+  url?: string;
+  token?: string;
+  db?: string;
+  since?: number;
+  dryRun: boolean;
+}
+
+export function parseArgs(argv: string[]): RawArgs | null {
   const args: Record<string, string> = {};
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -44,23 +52,47 @@ export function parseArgs(argv: string[]): BackfillOptions | null {
       }
     }
   }
-  const url = args["url"];
-  const token = args["token"];
-  if (!url || !token) return null;
   let since: number | undefined;
   if (args["since"] !== undefined) {
     const n = Number(args["since"]);
     if (!Number.isFinite(n) || n < 0) return null;
     since = n;
   }
-  const options: BackfillOptions = {
-    url,
-    token,
-    db: args["db"] ?? defaultZcodeDbPath(),
+  return {
+    ...(args["url"] === undefined ? {} : { url: args["url"] }),
+    ...(args["token"] === undefined ? {} : { token: args["token"] }),
+    ...(args["db"] === undefined ? {} : { db: args["db"] }),
     ...(since === undefined ? {} : { since }),
     dryRun: args["dry-run"] !== undefined,
   };
-  return options;
+}
+
+export function resolveOptions(
+  argv: string[],
+  env: Record<string, string | undefined> = process.env,
+  configPath?: string,
+): BackfillOptions | null {
+  const raw = parseArgs(argv);
+  if (!raw) return null;
+  let url = raw.url ?? env["SESSION_HUB_URL"];
+  let token = raw.token ?? env["SESSION_HUB_TOKEN"];
+  if (url === undefined || token === undefined) {
+    const config = loadConfig(env, configPath);
+    if (config) {
+      url ??= config.baseUrl;
+      token ??= config.token;
+    }
+  }
+  if (typeof url !== "string" || url.length === 0 || typeof token !== "string" || token.length === 0) {
+    return null;
+  }
+  return {
+    url,
+    token,
+    db: raw.db ?? defaultZcodeDbPath(),
+    ...(raw.since === undefined ? {} : { since: raw.since }),
+    dryRun: raw.dryRun,
+  };
 }
 
 export interface BackfillHooks {
@@ -117,7 +149,7 @@ const isMain =
   process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
 
 if (isMain) {
-  const options = parseArgs(process.argv.slice(2));
+  const options = resolveOptions(process.argv.slice(2));
   if (options) {
     runBackfill(options)
       .then((counters) => {

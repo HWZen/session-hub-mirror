@@ -1,27 +1,24 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { parseArgs } from "../src/backfill.js";
+import { parseArgs, resolveOptions } from "../src/backfill.js";
 
 describe("parseArgs", () => {
-  it("parses url/token and defaults", () => {
-    const options = parseArgs(["--url", "https://hub.example.com", "--token", "tok"]);
-    expect(options).toEqual({
-      url: "https://hub.example.com",
-      token: "tok",
-      db: expect.stringContaining(join(".zcode", "cli", "db", "db.sqlite")),
-      dryRun: false,
-    });
+  it("parses url/token", () => {
+    const raw = parseArgs(["--url", "https://hub.example.com", "--token", "tok"]);
+    expect(raw).toEqual({ url: "https://hub.example.com", token: "tok", dryRun: false });
   });
 
   it("parses --key=value form, db, since and dry-run", () => {
-    const options = parseArgs([
+    const raw = parseArgs([
       "--url=https://hub.example.com",
       "--token=tok",
       "--db=D:\\x\\db.sqlite",
       "--since=123",
       "--dry-run",
     ]);
-    expect(options).toMatchObject({
+    expect(raw).toEqual({
       url: "https://hub.example.com",
       token: "tok",
       db: "D:\\x\\db.sqlite",
@@ -30,9 +27,41 @@ describe("parseArgs", () => {
     });
   });
 
-  it("returns null without url/token and rejects bad since", () => {
-    expect(parseArgs(["--url", "https://x"])).toBeNull();
-    expect(parseArgs(["--token", "t"])).toBeNull();
-    expect(parseArgs(["--url", "https://x", "--token", "t", "--since", "abc"])).toBeNull();
+  it("returns null on bad since and tolerates missing url/token", () => {
+    expect(parseArgs(["--since", "abc"])).toBeNull();
+    expect(parseArgs(["--dry-run"])).toEqual({ dryRun: true });
+    expect(parseArgs([])).toEqual({ dryRun: false });
+  });
+});
+
+describe("resolveOptions", () => {
+  it("merges args, env and defaults", () => {
+    const options = resolveOptions(
+      ["--url=https://hub.example.com", "--dry-run"],
+      { SESSION_HUB_TOKEN: "env-token" },
+      join(tmpdir(), "definitely-missing.json"),
+    );
+    expect(options).toMatchObject({
+      url: "https://hub.example.com",
+      token: "env-token",
+      db: expect.stringContaining(join(".zcode", "cli", "db", "db.sqlite")),
+      dryRun: true,
+    });
+  });
+
+  it("falls back to config file when args provide neither url nor token", () => {
+    const dir = mkdtempSync(join(tmpdir(), "sh-zcode-backfill-"));
+    try {
+      const configPath = join(dir, "config.json");
+      writeFileSync(configPath, JSON.stringify({ baseUrl: "https://file.example.com", token: "file-token" }));
+      const options = resolveOptions([], {}, configPath);
+      expect(options).toMatchObject({ url: "https://file.example.com", token: "file-token", dryRun: false });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns null when no source provides url/token", () => {
+    expect(resolveOptions([], {}, join(tmpdir(), "definitely-missing.json"))).toBeNull();
   });
 });
