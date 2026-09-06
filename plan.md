@@ -38,11 +38,11 @@
 | 时间戳 | 每会话存**创建时间 + 最后修改时间**（取源数据时间，非上传时间） | |
 | 元数据 | agent、machine（主机名）、title、cwd/项目路径（可选，有就传） | opencode 自带 directory；WorkBuddy JSONL 自带 cwd |
 | 消费粒度 | 检索定位（对话索引）+ 全量下载提取（skill 代码在工具产出里，靠详情接口拿） | 查找与提取分离 |
-| 部署/隐私 | 私人服务器、明文存储、HTTPS + 固定 token；单人使用；无开源计划 | |
-| 数据存放 | **直接存 NAS（SMB）**；否决"本地+备份"方案 | 必须禁用 WAL，见 §9 风险 |
+| 部署/隐私 | 私人服务器、明文存储、固定 token；单人使用；无开源计划；HTTPS/Caddy 属 P4 公网化（暂缓），当前阶段 HTTP + token 仅局域网 | |
+| 数据存放 | **服务器本地盘**（2026-09-06 变更：部署进服务器 WSL1，数据落 Windows D 盘 NTFS）；NAS SMB 方案暂缓，恢复 NAS 时仍须禁用 WAL（见 §9 风险） | |
 | 向量模型 | 模型不再全局锁死，**按提供商配置**（provider 级 `model` 字段，默认 `bge-m3`）；**活跃模型** = weight 最高的已启用 provider 的模型；索引与语义检索只使用活跃模型的向量空间；failover 候选**仅限与活跃模型相同的 provider**（"降级只换谁在算，不换算什么"沿用）；切换模型 = 切换向量空间，旧空间数据保留但检索不可见，需对活跃模型重新索引；**不引入"最大上下文"配置**（消息级 embedding，超限由提供商报错自然暴露） | 向量表按模型分表；维度为运行时事实，不再全局常量；2026-09-05 变更（起因：本地 Ollama 透 qwen3-embedding 服务，模型需可配） |
 | 向量提供商 | **配置文件驱动**；优先级链：5070Ti(frp) → 4070Ti(frp) → 云端(待填，可走 new-api 网关)；**不再内置本地 CPU 兜底**（2026-09-05 变更：服务器 i3+16G 跑不动 fp32 bge-m3，实测峰值 20G+ 内存）；本地推理服务（Ollama/llama.cpp 等）如需要，按普通 OpenAI 兼容 provider 配置即可 | 健康检查 + 自动降级；降级只换"谁在算"，不换"算什么"（候选集限同模型，见"向量模型"行）；未配置任何可用提供商时 health 返回警告、索引/搜索报错，不静默兜底；Web 设置页可编辑（配地址/密钥/模型/权重/开关/超时），写 `config/providers.local.json`（gitignore，优先于样例文件），保存即热更新 |
-| 技术栈 | TypeScript / Node.js（唯一语言）+ Hono + SQLite + sqlite-vec + Caddy + NSSM | **不用 Docker** |
+| 技术栈 | TypeScript / Node.js（唯一语言）+ Hono + SQLite + sqlite-vec | **不用 Docker**；Caddy + NSSM 属 P4 公网化（暂缓），当前 WSL1 内手动启动、无开机自启 |
 | 端范围 | 多台 Windows PC；手机不做；网页端/非 Agent 数据不做 | |
 | v1 信息源 | opencode（钩子）、WorkBuddy（轮询）、豆包（实验性）、zcode（钩子+回填，2026-09-06 增） | |
 | opencode 历史回填 | 做（本机已有 117 会话） | |
@@ -135,7 +135,7 @@ messages / parts                -- 全量原文（JSON 存储或子表，实施�
 1. **P1 服务端核心**：Hono + SQLite(禁 WAL) + sqlite-vec + 本地 CPU bge-m3 兜底 + CRUD/搜索 API + token 鉴权 —— 用 CPU 先跑通全链路
 2. **P2 opencode 插件**：TS 插件钩子实时上传 + 历史回填脚本（117 会话）
 3. **P3 WorkBuddy 轮询器**：JSONL 监听 + 上传；部署到常用工作机
-4. **P4 公网化 + 提供商链**：Caddy(HTTPS/DDNS) + frps/frpc + GPU 机 bge-m3 服务 + 提供商配置文件（5070Ti→4070Ti→云端→CPU）
+4. **P4 公网化 + 提供商链（暂缓，2026-09-06：先局域网 HTTP:5328 + token）**：Caddy(HTTPS/DDNS) + frps/frpc + GPU 机 bge-m3 服务 + 提供商配置文件（5070Ti→4070Ti→云端）
 5. **P5 豆包实验适配器**：copy-then-read + LevelDB/IndexedDB 尽力解析
 6. **P6 收尾**：消费端验证（WorkBuddy 每日总结任务改走本 API）、文档、运行手册
 
