@@ -167,7 +167,23 @@ POST /v1/search
 ```
 
 `results` 按距离升序；`snippets` 是命中消息片段，可快速定位上下文。可带 `filters`
-（agent/machine/source_id/时间范围）缩小范围，字段同 `GET /v1/sessions`。
+（agent/machine/source_id/时间范围/title）缩小范围，字段同 `GET /v1/sessions`。
+
+### 场景：关键词检索（grep 式子串匹配）
+
+```text
+# 1. 查用法
+GET /v1/grep?help=1
+
+# 2. 执行（q 必填 1..256 字符，需 URL 编码）
+GET /v1/grep?q=E_ROLLBACK&agent=opencode&limit=20
+→ {"total": 12, "limit": 20, "offset": 0, "items": [{"session": {…}, "hits": [{"message_idx": 3, "role": "user", "ts": …, "snippet": "…", "match_start": 42}]}]}
+```
+
+按**字面子串**匹配消息正文，不依赖 embedding 提供商——语义检索 503 时仍可用；适合精确词
+（错误码、函数名、文件路径）。默认大小写不敏感（仅 ASCII 折叠），`case_sensitive=1` 敏感；
+`%`/`_`/`\` 按字面匹配而非通配符。可与 agent/machine/source_id/时间范围/title 过滤组合；
+`total` 为命中消息总数（分页按消息行计），`hits[].match_start` 是命中在 snippet 内的偏移。
 
 ### 场景：列出会话 / 查看详情
 
