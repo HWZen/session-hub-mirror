@@ -11,11 +11,11 @@ try {
   const app = createApp({
     db,
     repo,
-    indexer,
     registry,
     token: env.SH_AUTH_TOKEN,
     webDist: env.SH_WEB_DIST ? resolveServerPath(env.SH_WEB_DIST) : undefined,
     settings: { ...settings, onProvidersSaved: () => autoIndexer.kick() },
+    onSessionUpserted: () => autoIndexer.kick(),
   });
   serve({ fetch: app.fetch, port: env.PORT, hostname: env.HOST }, (info) => {
     console.log(`[server] listening on ${info.address}:${info.port} db=${env.SH_DB_PATH}`);

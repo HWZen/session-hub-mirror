@@ -5,7 +5,8 @@ const AUTH = { headers: { authorization: `Bearer ${TEST_TOKEN}` } };
 const NEEDLE = "how to fix ECONNRESET in nodejs server";
 const UNRELATED = "hotpot recipe with beef and tofu";
 
-async function seed(app: ReturnType<typeof buildApp>["app"]) {
+async function seed(parts: ReturnType<typeof buildApp>) {
+  const { app, settleIndexing } = parts;
   await putSession(
     app,
     { ...opencodeBody("sA"), messages: [{ role: "user", text: NEEDLE, ts: 1 }, { role: "assistant", text: "retry with backoff", ts: 2 }] },
@@ -14,6 +15,7 @@ async function seed(app: ReturnType<typeof buildApp>["app"]) {
     app,
     { ...workbuddyBody("sB"), messages: [{ role: "user", text: UNRELATED, ts: 1 }] },
   );
+  await settleIndexing();
 }
 
 function opencodeBody(sourceId: string) {
@@ -51,8 +53,9 @@ describe("semantic search", () => {
   });
 
   it("ranks the matching session first with snippets", async () => {
-    const { app } = buildApp();
-    await seed(app);
+    const parts = buildApp();
+    await seed(parts);
+    const { app } = parts;
     const res = await postSearch(app, { query: NEEDLE, top_k: 5 });
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
@@ -72,8 +75,9 @@ describe("semantic search", () => {
   });
 
   it("applies filters to search results", async () => {
-    const { app } = buildApp();
-    await seed(app);
+    const parts = buildApp();
+    await seed(parts);
+    const { app } = parts;
     const res = await postSearch(app, { query: NEEDLE, filters: { agent: "workbuddy" } });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { results: Array<{ session: { source_id: string; agent: string } }> };

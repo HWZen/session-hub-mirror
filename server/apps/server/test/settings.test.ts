@@ -221,11 +221,12 @@ describe("settings provider test", () => {
 
 describe("settings reindex", () => {
   it("为未索引会话补建向量", async () => {
-    const { app, db } = buildApp(TEST_TOKEN, [new FakeEmbedProvider("fake")], undefined, (parts) =>
+    const { app, db, settleIndexing } = buildApp(TEST_TOKEN, [new FakeEmbedProvider("fake")], undefined, (parts) =>
       makeSettingsDeps(parts),
     );
     const put = await putSession(app, sessionBody());
-    expect(((await put.json()) as { indexed: boolean }).indexed).toBe(true);
+    expect(((await put.json()) as { created: boolean }).created).toBe(true);
+    await settleIndexing();
     db.prepare("UPDATE sessions SET indexed_at = NULL").run();
     const res = await settingsRequest(app, "POST", "/reindex");
     expect(res.status).toBe(200);

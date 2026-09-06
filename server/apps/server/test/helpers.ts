@@ -135,21 +135,34 @@ export function buildApp(
     repo: SessionRepository;
     indexer: SessionIndexer;
   }) => SettingsRouteDeps,
+  onSessionUpserted?: () => void,
 ) {
   const db = makeDb();
   const repo = new SessionRepository(db);
   const registry = new EmbeddingRegistry(providers ?? [new FakeEmbedProvider("fake")]);
   const indexer = new SessionIndexer(db, repo, registry);
+  let pendingIndexing: Promise<void> = Promise.resolve();
+  const upserted =
+    onSessionUpserted ??
+    (() => {
+      pendingIndexing = pendingIndexing.then(() =>
+        (async () => {
+          for (const session of repo.listUnindexed(200, registry.activeModel())) {
+            await indexer.indexSession(session.id);
+          }
+        })(),
+      );
+    });
   const app = createApp({
     db,
     repo,
-    indexer,
     registry,
     token,
     webDist,
     settings: settings?.({ registry, repo, indexer }),
+    onSessionUpserted: upserted,
   });
-  return { app, db, repo, registry, indexer };
+  return { app, db, repo, registry, indexer, settleIndexing: () => pendingIndexing };
 }
 
 export function makeSettingsDeps(

@@ -1,11 +1,10 @@
 import { Hono } from "hono";
 import { sessionFilterSchema, sessionUpsertSchema } from "@session-hub/shared";
 import type { SessionRepository } from "../db/sessions.js";
-import type { SessionIndexer } from "../indexing.js";
 
 export interface SessionRouteDeps {
   repo: SessionRepository;
-  indexer: SessionIndexer;
+  onUpserted?: (() => void) | undefined;
 }
 
 const DEFAULT_LIMIT = 50;
@@ -34,8 +33,8 @@ export function sessionRoutes(deps: SessionRouteDeps): Hono {
       return c.json({ error: "invalid body", issues: parsed.error.issues }, 400);
     }
     const { id, created } = deps.repo.upsert(parsed.data);
-    const indexed = await deps.indexer.indexSession(id);
-    return c.json({ id, created, indexed }, created ? 201 : 200);
+    deps.onUpserted?.();
+    return c.json({ id, created }, created ? 201 : 200);
   });
 
   app.get("/", (c) => {

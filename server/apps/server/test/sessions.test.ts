@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { FailingEmbedProvider, FakeEmbedProvider, TEST_TOKEN, buildApp, putSession, sessionBody } from "./helpers.js";
+import type { EmbedProvider } from "../src/embedding/registry.js";
+import {
+  FailingEmbedProvider,
+  FakeEmbedProvider,
+  TEST_TOKEN,
+  buildApp,
+  hashVector,
+  putSession,
+  sessionBody,
+} from "./helpers.js";
 import { EmbeddingRegistry } from "../src/embedding/registry.js";
 import { SessionIndexer } from "../src/indexing.js";
 
@@ -16,12 +25,11 @@ async function getList(app: ReturnType<typeof buildApp>["app"], query = "") {
 
 describe("sessions CRUD", () => {
   it("creates, then re-upserts idempotently by agent+machine+source_id", async () => {
-    const { app } = buildApp();
+    const { app, settleIndexing } = buildApp();
     const res1 = await putSession(app, sessionBody());
     expect(res1.status).toBe(201);
-    const body1 = (await res1.json()) as { id: string; created: boolean; indexed: boolean };
+    const body1 = (await res1.json()) as { id: string; created: boolean };
     expect(body1.created).toBe(true);
-    expect(body1.indexed).toBe(true);
     expect(body1.id).toBeTruthy();
 
     const res2 = await putSession(
@@ -40,6 +48,7 @@ describe("sessions CRUD", () => {
     const body2 = (await res2.json()) as { id: string; created: boolean };
     expect(body2.created).toBe(false);
     expect(body2.id).toBe(body1.id);
+    await settleIndexing();
 
     const list = await getList(app);
     expect(list.total).toBe(1);
@@ -140,20 +149,55 @@ describe("sessions CRUD", () => {
     expect(badJson.status).toBe(400);
   });
 
-  it("stores sessions even when indexing fails, reporting indexed=false", async () => {
-    const { app } = buildApp(TEST_TOKEN, [new FailingEmbedProvider("always-fails")]);
+  it("returns immediately after upsert with { id, created } and no indexed field; indexing lands in background", async () => {
+    let release: (() => void) | null = null;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const blocking: EmbedProvider = {
+      kind: "fake",
+      name: "blocking",
+      model: "bge-m3",
+      priority: 1000,
+      cooldownUntil: 0,
+      lastError: null,
+      ready: true,
+      embed: (texts) => gate.then(() => texts.map((t) => hashVector(t))),
+      reportSuccess: () => {},
+      reportFailure: () => {},
+    };
+    const { app, repo, settleIndexing } = buildApp(TEST_TOKEN, [blocking]);
     const res = await putSession(app, sessionBody());
     expect(res.status).toBe(201);
-    const body = (await res.json()) as { id: string; created: boolean; indexed: boolean };
-    expect(body.indexed).toBe(false);
+    expect((await res.json()) as unknown).toEqual({ id: expect.any(String), created: true });
+    expect(repo.listUnindexed(10, "bge-m3")).toHaveLength(1);
+
+    release!();
+    await settleIndexing();
+    expect(repo.listUnindexed(10, "bge-m3")).toHaveLength(0);
+    const detail = (await (await app.request(`/v1/sessions/${(await getList(app)).items[0]!.id}`, AUTH)).json()) as {
+      indexed_model: string | null;
+    };
+    expect(detail.indexed_model).toBe("bge-m3");
+  });
+
+  it("stores sessions even when embedding fails, leaving them unindexed for background retry", async () => {
+    const { app, repo, registry, settleIndexing } = buildApp(TEST_TOKEN, [new FailingEmbedProvider("always-fails")]);
+    const res = await putSession(app, sessionBody());
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { id: string; created: boolean };
+    expect(body.created).toBe(true);
+    await settleIndexing();
     const list = await getList(app);
     expect(list.total).toBe(1);
+    expect(repo.listUnindexed(10, registry.activeModel()).map((s) => s.id)).toContain(body.id);
   });
 
   it("reports stats across agents and machines", async () => {
-    const { app } = buildApp();
+    const { app, settleIndexing } = buildApp();
     await putSession(app, sessionBody({ source_id: "x1", agent: "opencode", machine: "M1" }));
     await putSession(app, sessionBody({ source_id: "x2", agent: "workbuddy", machine: "M2" }));
+    await settleIndexing();
     const res = await app.request("/v1/stats", AUTH);
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
@@ -176,9 +220,10 @@ describe("sessions CRUD", () => {
   });
 
   it("reindexes previously unindexed sessions", async () => {
-    const { app, db, repo, registry } = buildApp(TEST_TOKEN, [new FailingEmbedProvider("always-fails")]);
+    const { app, db, repo, registry, settleIndexing } = buildApp(TEST_TOKEN, [new FailingEmbedProvider("always-fails")]);
     const res = await putSession(app, sessionBody());
     const { id } = (await res.json()) as { id: string };
+    await settleIndexing();
     const unindexed = repo.listUnindexed(100, registry.activeModel());
     expect(unindexed.map((s) => s.id)).toContain(id);
 

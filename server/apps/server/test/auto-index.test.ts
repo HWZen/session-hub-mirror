@@ -23,14 +23,14 @@ function vectorCount(db: SqliteDatabase, table: string): number {
 
 describe("auto indexer runOnce", () => {
   it("模型 A 索引后切到模型 B：切换不破坏旧数据，runOnce 一轮后 B 空间可检索、stats 未索引归零", async () => {
-    const { app, db, repo, registry, indexer } = buildApp(
+    const { app, db, repo, registry, indexer, settleIndexing } = buildApp(
       TEST_TOKEN,
       [new FakeEmbedProvider("pa", "model-a", 100, 16)],
       undefined,
       (parts) => makeSettingsDeps(parts),
     );
     const put1 = await putSession(app, sessionBody({ source_id: "s1" }));
-    expect(((await put1.json()) as { indexed: boolean }).indexed).toBe(true);
+    expect(((await put1.json()) as { created: boolean }).created).toBe(true);
     const put2 = await putSession(
       app,
       sessionBody({
@@ -39,7 +39,8 @@ describe("auto indexer runOnce", () => {
         messages: [{ role: "user", text: "cooking pasta tonight", ts: 1 }],
       }),
     );
-    expect(((await put2.json()) as { indexed: boolean }).indexed).toBe(true);
+    expect(((await put2.json()) as { created: boolean }).created).toBe(true);
+    await settleIndexing();
     expect(vectorCount(db, "message_embeddings_model_a")).toBe(3);
 
     registry.replaceRemoteProviders([new FakeEmbedProvider("pb", "model-b", 100, 16)]);
@@ -66,25 +67,27 @@ describe("auto indexer runOnce", () => {
   });
 
   it("无 provider（activeModel null）时 runOnce 不动作不报错", async () => {
-    const { app, repo, registry, indexer } = buildApp(TEST_TOKEN, [], undefined, (parts) =>
+    const { app, repo, registry, indexer, settleIndexing } = buildApp(TEST_TOKEN, [], undefined, (parts) =>
       makeSettingsDeps(parts),
     );
     const put = await putSession(app, sessionBody());
-    expect(((await put.json()) as { indexed: boolean }).indexed).toBe(false);
+    expect(((await put.json()) as { created: boolean }).created).toBe(true);
+    await settleIndexing();
     const auto = new AutoIndexer(repo, indexer, registry, 30_000);
     await expect(auto.runOnce()).resolves.toBe(0);
     expect(repo.listUnindexed(10, null)).toHaveLength(1);
   });
 
   it("provider 全失败时 runOnce 不抛异常、会话保持未索引，下一轮恢复后消化", async () => {
-    const { app, repo, registry, indexer } = buildApp(
+    const { app, repo, registry, indexer, settleIndexing } = buildApp(
       TEST_TOKEN,
       [new FailingEmbedProvider("failing", "bge-m3", 2000)],
       undefined,
       (parts) => makeSettingsDeps(parts),
     );
     const put = await putSession(app, sessionBody());
-    expect(((await put.json()) as { indexed: boolean }).indexed).toBe(false);
+    expect(((await put.json()) as { created: boolean }).created).toBe(true);
+    await settleIndexing();
     const auto = new AutoIndexer(repo, indexer, registry, 30_000);
     await expect(auto.runOnce()).resolves.toBe(0);
     expect(repo.listUnindexed(10, "bge-m3")).toHaveLength(1);
@@ -106,15 +109,17 @@ describe("auto indexer scheduling", () => {
   it("kick 在 interval 未到时提前触发下一轮", async () => {
     vi.useFakeTimers();
     const provider = new FakeEmbedProvider("fake");
-    const { app, db, repo, registry, indexer } = buildApp(TEST_TOKEN, [provider], undefined, (parts) =>
+    const { app, db, repo, registry, indexer, settleIndexing } = buildApp(TEST_TOKEN, [provider], undefined, (parts) =>
       makeSettingsDeps(parts),
     );
     const auto = new AutoIndexer(repo, indexer, registry, 60_000);
     auto.start();
     await vi.advanceTimersByTimeAsync(0);
     const put = await putSession(app, sessionBody());
-    expect(((await put.json()) as { indexed: boolean }).indexed).toBe(true);
+    expect(((await put.json()) as { created: boolean }).created).toBe(true);
+    await settleIndexing();
     expect(provider.calls).toBe(1);
+    expect(repo.listUnindexed(10, "bge-m3")).toHaveLength(0);
 
     db.prepare("UPDATE sessions SET indexed_at = NULL").run();
     await vi.advanceTimersByTimeAsync(59_999);
@@ -129,5 +134,24 @@ describe("auto indexer scheduling", () => {
     auto.stop();
     await vi.advanceTimersByTimeAsync(120_000);
     expect(provider.calls).toBe(2);
+  });
+
+  it("上传经 onSessionUpserted → kick 立即后台补索引（不等 interval 定时器）", async () => {
+    vi.useFakeTimers();
+    const provider = new FakeEmbedProvider("fake");
+    const { app, repo, registry, indexer } = buildApp(TEST_TOKEN, [provider], undefined, undefined, () => auto.kick());
+    const auto = new AutoIndexer(repo, indexer, registry, 60_000);
+    auto.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(provider.calls).toBe(0);
+
+    const res = await putSession(app, sessionBody());
+    expect(res.status).toBe(201);
+    expect((await res.json()) as unknown).toEqual({ id: expect.any(String), created: true });
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(provider.calls).toBe(1);
+    expect(repo.listUnindexed(10, "bge-m3")).toHaveLength(0);
+    auto.stop();
   });
 });

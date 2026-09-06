@@ -25,7 +25,7 @@ export function bootstrap(): Bootstrap {
     resolveServerPath(env.SH_PROVIDERS_LOCAL_FILE),
     resolveServerPath(env.SH_PROVIDERS_FILE),
   );
-  const registry = new EmbeddingRegistry(createRemoteProviders(store.load().providers, process.env));
+  const registry = new EmbeddingRegistry(createRemoteProviders(store.load().providers, process.env), env.SH_EMBED_BATCH_SIZE);
   const indexer = new SessionIndexer(db, repo, registry);
   const settings: SettingsRouteDeps = {
     store,

@@ -137,9 +137,11 @@ export class EmbeddingRegistry {
   #current: string | null = null;
   #dims = new Map<string, number>();
   #remote: EmbedProvider[];
+  #batchSize: number;
 
-  constructor(remote: EmbedProvider[]) {
+  constructor(remote: EmbedProvider[], batchSize = 32) {
     this.#remote = [...remote];
+    this.#batchSize = Math.max(1, Math.floor(batchSize));
   }
 
   get providers(): EmbedProvider[] {
@@ -208,6 +210,15 @@ export class EmbeddingRegistry {
     }
   }
 
+  async #embedBatched(provider: EmbedProvider, texts: string[]): Promise<Float32Array[]> {
+    const vectors: Float32Array[] = [];
+    for (let start = 0; start < texts.length; start += this.#batchSize) {
+      const batch = texts.slice(start, start + this.#batchSize);
+      vectors.push(...(await provider.embed(batch)));
+    }
+    return vectors;
+  }
+
   async embed(texts: string[]): Promise<EmbedOutput> {
     const active = this.activeModel();
     if (texts.length === 0) {
@@ -227,7 +238,7 @@ export class EmbeddingRegistry {
         continue;
       }
       try {
-        const vectors = await provider.embed(texts);
+        const vectors = await this.#embedBatched(provider, texts);
         this.#validateVectors(active, vectors, texts.length);
         if (this.#establishedDim(active) === undefined) {
           this.#dims.set(active, vectors[0]!.length);

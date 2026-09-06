@@ -4,8 +4,84 @@ import {
   EmbeddingUnavailableError,
   createRemoteProviders,
   parseOpenAIEmbeddings,
+  type EmbedProvider,
 } from "../src/embedding/registry.js";
 import { BadDimEmbedProvider, FailingEmbedProvider, FakeEmbedProvider, hashVector } from "./helpers.js";
+
+class RecordingProvider implements EmbedProvider {
+  readonly kind = "fake" as const;
+  cooldownUntil = 0;
+  lastError: string | null = null;
+  batches: string[][] = [];
+  events: string[] = [];
+
+  constructor(
+    readonly name: string,
+    readonly model = "bge-m3",
+    readonly priority = 1000,
+    private readonly failOnBatch: number | null = null,
+  ) {}
+
+  get ready(): boolean {
+    return true;
+  }
+
+  async embed(texts: string[]): Promise<Float32Array[]> {
+    const batch = this.batches.length;
+    this.batches.push(texts);
+    this.events.push(`start:${batch}`);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    this.events.push(`end:${batch}`);
+    if (this.failOnBatch === batch) {
+      throw new Error(`batch ${batch} failed`);
+    }
+    return texts.map((t) => hashVector(t));
+  }
+
+  reportSuccess(): void {}
+
+  reportFailure(): void {}
+}
+
+describe("embed batching", () => {
+  it("按 batchSize 切片串行调用 provider，结果按序合并", async () => {
+    const provider = new RecordingProvider("rec");
+    const registry = new EmbeddingRegistry([provider], 2);
+    const texts = ["a", "b", "c", "d", "e"];
+    const out = await registry.embed(texts);
+    expect(provider.batches).toEqual([["a", "b"], ["c", "d"], ["e"]]);
+    expect(provider.events).toEqual(["start:0", "end:0", "start:1", "end:1", "start:2", "end:2"]);
+    expect(out.provider).toBe("rec");
+    expect(out.model).toBe("bge-m3");
+    expect(out.vectors).toHaveLength(5);
+    texts.forEach((text, i) => {
+      expect(out.vectors[i]).toEqual(hashVector(text));
+    });
+  });
+
+  it("texts 数不超过 batchSize 时单批直发", async () => {
+    const provider = new RecordingProvider("rec");
+    const registry = new EmbeddingRegistry([provider]);
+    await registry.embed(["a", "b", "c"]);
+    expect(provider.batches).toEqual([["a", "b", "c"]]);
+    expect(provider.events).toEqual(["start:0", "end:0"]);
+  });
+
+  it("failover 以整次调用为单位：换 provider 重跑全部分批，不做半批切换", async () => {
+    const broken = new RecordingProvider("broken", "bge-m3", 100, 1);
+    const backup = new RecordingProvider("backup", "bge-m3", 90);
+    const registry = new EmbeddingRegistry([broken, backup], 2);
+    const texts = ["a", "b", "c", "d"];
+    const out = await registry.embed(texts);
+    expect(broken.batches).toEqual([["a", "b"], ["c", "d"]]);
+    expect(backup.batches).toEqual([["a", "b"], ["c", "d"]]);
+    expect(out.provider).toBe("backup");
+    expect(out.vectors).toHaveLength(4);
+    texts.forEach((text, i) => {
+      expect(out.vectors[i]).toEqual(hashVector(text));
+    });
+  });
+});
 
 describe("embedding registry", () => {
   it("fails over from a broken provider to the next one", async () => {

@@ -22,14 +22,14 @@ function vectorCount(db: SqliteDatabase, table: string): number {
 
 describe("model partitioned embeddings", () => {
   it("index model A, switch to model B: B space empty, old space preserved, reindex fills B", async () => {
-    const { app, db, repo, registry, indexer } = buildApp(
+    const { app, db, repo, registry, indexer, settleIndexing } = buildApp(
       TEST_TOKEN,
       [new FakeEmbedProvider("pa", "model-a", 100, 16)],
       undefined,
       (parts) => makeSettingsDeps(parts),
     );
     const put1 = await putSession(app, sessionBody({ source_id: "s1" }));
-    expect(((await put1.json()) as { indexed: boolean }).indexed).toBe(true);
+    expect(((await put1.json()) as { created: boolean }).created).toBe(true);
     const put2 = await putSession(
       app,
       sessionBody({
@@ -38,7 +38,8 @@ describe("model partitioned embeddings", () => {
         messages: [{ role: "user", text: "cooking pasta tonight", ts: 1 }],
       }),
     );
-    expect(((await put2.json()) as { indexed: boolean }).indexed).toBe(true);
+    expect(((await put2.json()) as { created: boolean }).created).toBe(true);
+    await settleIndexing();
     expect(tableExists(db, "message_embeddings_model_a")).toBe(true);
     expect(vectorCount(db, "message_embeddings_model_a")).toBe(3);
 
@@ -89,6 +90,7 @@ describe("model partitioned embeddings", () => {
 
     const put3 = await putSession(app, sessionBody({ source_id: "s1", title: "updated" }));
     expect(put3.status).toBe(200);
+    await settleIndexing();
     expect(vectorCount(db, "message_embeddings_model_b")).toBe(3);
     expect(vectorCount(db, "message_embeddings_model_a")).toBe(0);
   });
