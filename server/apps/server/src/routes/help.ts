@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import { z } from "zod";
 import {
+  grepRequestSchema,
   providerSettingsBodySchema,
   searchRequestSchema,
   sessionFilterSchema,
@@ -131,6 +132,7 @@ export const endpoints: EndpointHelp[] = [
         agent: "精确匹配来源 Agent",
         machine: "精确匹配来源机器",
         source_id: "精确匹配来源会话 ID",
+        title: "标题子串包含（LIKE，ASCII 大小写不敏感）",
         created_from: "创建时间下界（毫秒时间戳或可解析的日期字符串）",
         created_to: "创建时间上界",
         updated_from: "修改时间下界",
@@ -187,6 +189,36 @@ export const endpoints: EndpointHelp[] = [
       { status: 503, message: "embedding unavailable：无可用 embedding 提供商", recoverable: true },
       ...UNAUTHORIZED,
     ],
+  },
+  {
+    method: "GET",
+    path: "/v1/grep",
+    summary: "关键词子串检索消息正文（LIKE 扫描，字面匹配，不依赖 embedding）",
+    params: queryParams(grepRequestSchema, {
+      q: "关键词子串，1..256 字符；%/_/\\ 按字面匹配",
+      case_sensitive: "1 开启大小写敏感（默认否；仅 ASCII 折叠）",
+      agent: "精确匹配来源 Agent",
+      machine: "精确匹配来源机器",
+      source_id: "精确匹配来源会话 ID",
+      title: "会话标题子串包含过滤",
+      created_from: "创建时间下界（毫秒时间戳或可解析的日期字符串）",
+      created_to: "创建时间上界",
+      updated_from: "修改时间下界",
+      updated_to: "修改时间上界",
+      limit: "1..200，默认 50（按命中消息行计）",
+      offset: ">=0，默认 0",
+    }),
+    returns: [
+      { name: "total", type: "integer", desc: "命中的消息总数" },
+      { name: "limit", type: "integer", desc: "本次分页大小" },
+      { name: "offset", type: "integer", desc: "本次偏移" },
+      {
+        name: "items",
+        type: "object[]",
+        desc: "按会话分组：{ session, hits }；hits 为 { message_idx, role, ts, snippet, match_start }，match_start 是命中在 snippet 内的偏移",
+      },
+    ],
+    errors: [{ status: 400, message: "invalid query（附 zod issues）", recoverable: true }, ...UNAUTHORIZED],
   },
   {
     method: "GET",

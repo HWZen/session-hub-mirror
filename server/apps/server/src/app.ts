@@ -6,6 +6,7 @@ import type { EmbeddingRegistry } from "./embedding/registry.js";
 import { healthRoutes } from "./routes/health.js";
 import { helpInterceptor, helpRoutes } from "./routes/help.js";
 import { searchRoutes } from "./routes/search.js";
+import { grepRoutes } from "./routes/grep.js";
 import { sessionRoutes } from "./routes/sessions.js";
 import { settingsRoutes, type SettingsRouteDeps } from "./routes/settings.js";
 import { statsRoutes } from "./routes/stats.js";
@@ -28,6 +29,7 @@ export function createApp(deps: AppDeps): Hono {
   app.route("/v1/help", helpRoutes());
   app.route("/v1/sessions", sessionRoutes({ repo: deps.repo, onUpserted: deps.onSessionUpserted }));
   app.route("/v1/search", searchRoutes(deps));
+  app.route("/v1/grep", grepRoutes(deps));
   app.route("/v1/stats", statsRoutes(deps));
   if (deps.settings) {
     app.route("/v1/settings", settingsRoutes(deps.settings));

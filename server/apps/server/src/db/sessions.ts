@@ -24,6 +24,10 @@ export interface FilterClause {
   params: Array<string | number>;
 }
 
+export function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
+
 export function buildSessionFilter(filters: SessionFilters): FilterClause {
   const conds: string[] = ["deleted_at IS NULL"];
   const params: Array<string | number> = [];
@@ -38,6 +42,10 @@ export function buildSessionFilter(filters: SessionFilters): FilterClause {
   if (filters.source_id !== undefined) {
     conds.push("source_id = ?");
     params.push(filters.source_id);
+  }
+  if (filters.title !== undefined) {
+    conds.push("title LIKE '%' || ? || '%' ESCAPE '\\'");
+    params.push(escapeLike(filters.title));
   }
   if (filters.created_from !== undefined) {
     conds.push("created_at >= ?");

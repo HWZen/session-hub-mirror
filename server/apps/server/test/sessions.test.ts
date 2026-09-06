@@ -135,6 +135,21 @@ describe("sessions CRUD", () => {
     expect((await getList(app, "?source_id=missing")).total).toBe(0);
   });
 
+  it("filters list by title substring, with LIKE wildcards taken literally", async () => {
+    const { app } = buildApp();
+    await putSession(app, sessionBody({ source_id: "t1", title: "修复登录超时", updated_at: 1700000100000 }));
+    await putSession(app, sessionBody({ source_id: "t2", title: "重构登录模块", updated_at: 1700000200000 }));
+    await putSession(app, sessionBody({ source_id: "t3", title: "100%_retry" }));
+
+    const titles = async (query: string) =>
+      (await getList(app, query)).items.map((item) => item.source_id);
+    expect(await titles(`?title=${encodeURIComponent("登录")}`)).toEqual(["t2", "t1"]);
+    expect(await titles(`?title=${encodeURIComponent("超时")}`)).toEqual(["t1"]);
+    expect(await titles("?title=missing")).toEqual([]);
+    expect(await titles(`?title=${encodeURIComponent("%")}`)).toEqual(["t3"]);
+    expect(await titles(`?title=${encodeURIComponent("100%_re")}`)).toEqual(["t3"]);
+  });
+
   it("rejects invalid bodies", async () => {
     const { app } = buildApp();
     const missing = await putSession(app, { agent: "opencode" });

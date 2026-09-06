@@ -9,7 +9,7 @@ export interface SessionRouteDeps {
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
-const FILTER_KEYS = ["agent", "machine", "source_id", "created_from", "created_to", "updated_from", "updated_to"] as const;
+const FILTER_KEYS = ["agent", "machine", "source_id", "title", "created_from", "created_to", "updated_from", "updated_to"] as const;
 
 function parseBoundedInt(value: string | undefined, min: number, max: number, fallback: number): number | null {
   if (value === undefined || value === "") return fallback;
