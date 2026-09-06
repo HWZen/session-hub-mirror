@@ -34,7 +34,7 @@
 | 存储范围 | 全量存：消息 + 工具产出/原文；**索引只做对话内容** | 原文全量落库 ⇒ 索引范围随时可推倒重建 |
 | 系统加工 | 零加工；**否决"消费者写回批注"** | 批注混入检索结果会污染消费者上下文 |
 | 总结/画像 | 消费者的职责，不在本系统 | |
-| 查询能力 | 正常 CRUD + 语义搜索；**否决专用增量/游标 API** | "取哪些 session"是消费者提示词的事；按时间过滤靠 CRUD 自然覆盖 |
+| 查询能力 | 正常 CRUD + 语义搜索 + 关键词子串检索（grep，读侧能力，零加工不变，2026-09-06 增）；**否决专用增量/游标 API** | "取哪些 session"是消费者提示词的事；按时间过滤靠 CRUD 自然覆盖 |
 | 时间戳 | 每会话存**创建时间 + 最后修改时间**（取源数据时间，非上传时间） | |
 | 元数据 | agent、machine（主机名）、title、cwd/项目路径（可选，有就传） | opencode 自带 directory；WorkBuddy JSONL 自带 cwd |
 | 消费粒度 | 检索定位（对话索引）+ 全量下载提取（skill 代码在工具产出里，靠详情接口拿） | 查找与提取分离 |
@@ -123,6 +123,7 @@ messages / parts                -- 全量原文（JSON 存储或子表，实施�
 | `GET /v1/sessions/:id` | 全量详情（含消息 + 工具产出原文） |
 | `DELETE /v1/sessions/:id` | 删除 |
 | `POST /v1/search` | `{query, top_k, filters?}` → 命中会话 + 片段（对话索引） |
+| `GET /v1/grep` | 关键词子串检索（2026-09-06 增）：`?q=` + 过滤参数同 sessions + `case_sensitive` → 命中消息按会话分组 + 片段 |
 | `GET/PUT /v1/settings/providers` | 提供商链读取/保存（含每提供商 `model`；密钥掩码返回；留空=保留旧密钥），保存即热更新 |
 | `POST /v1/settings/providers/test` | 单提供商探针：`{name}` → `{ok, latencyMs, dim, model, error}`（用该 provider 自己的 model 发请求） |
 | `POST /v1/settings/reindex` | 为未索引会话补建向量（每批 ≤200） |
