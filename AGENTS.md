@@ -38,7 +38,6 @@ master 主工作区只保留已合并内容，不再直接开发。
 3. 测试与运行（全在 worktree 内）：
    - `npm test` / `npm run build`（完成标准不变）
    - `npm run dev` 用 worktree 自己的 `.env` 端口；前端联调 `SH_API_PORT=<端口> npm run dev:web`（Vite 代理目标跟随该变量，默认 7428）
-4. 收尾：合并回 master 后 `git branch -d <分支名>`；worktree 保留不删
 
 ## 技术栈（硬约束）
 
