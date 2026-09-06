@@ -155,3 +155,63 @@ describe("auto indexer scheduling", () => {
     auto.stop();
   });
 });
+
+class GatedEmbedProvider extends FakeEmbedProvider {
+  entered = false;
+  #gate = Promise.resolve();
+  #release: (() => void) | null = null;
+
+  hold(): void {
+    this.#gate = new Promise<void>((resolve) => {
+      this.#release = resolve;
+    });
+  }
+
+  release(): void {
+    this.#release?.();
+    this.#release = null;
+  }
+
+  override async embed(texts: string[]): Promise<Float32Array[]> {
+    this.entered = true;
+    await this.#gate;
+    return super.embed(texts);
+  }
+}
+
+describe("auto indexer whenIdle", () => {
+  it("无在途 round 时立即 resolve", async () => {
+    const { repo, registry, indexer } = buildApp(TEST_TOKEN, [new FakeEmbedProvider("fake")]);
+    const auto = new AutoIndexer(repo, indexer, registry, 60_000);
+    await expect(auto.whenIdle()).resolves.toBeUndefined();
+    auto.start();
+    await expect(auto.whenIdle()).resolves.toBeUndefined();
+    auto.stop();
+  });
+
+  it("有在途 round 时返回该 round 的 promise，round 结束才 resolve", async () => {
+    const provider = new GatedEmbedProvider("gated");
+    const { app, repo, registry, indexer } = buildApp(TEST_TOKEN, [provider], undefined, undefined, () => {});
+    const put = await putSession(app, sessionBody());
+    expect(((await put.json()) as { created: boolean }).created).toBe(true);
+    expect(repo.listUnindexed(10, "bge-m3")).toHaveLength(1);
+
+    provider.hold();
+    const auto = new AutoIndexer(repo, indexer, registry, 60_000);
+    auto.start();
+    await vi.waitFor(() => expect(provider.entered).toBe(true));
+
+    let settled = false;
+    void auto.whenIdle().then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    provider.release();
+    await auto.whenIdle();
+    expect(settled).toBe(true);
+    expect(repo.listUnindexed(10, "bge-m3")).toHaveLength(0);
+    auto.stop();
+  });
+});

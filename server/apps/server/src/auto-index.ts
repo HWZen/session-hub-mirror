@@ -8,6 +8,7 @@ export class AutoIndexer {
   #timer: ReturnType<typeof setTimeout> | null = null;
   #running = false;
   #stopped = true;
+  #inflight: Promise<void> | null = null;
 
   constructor(
     private readonly repo: SessionRepository,
@@ -19,7 +20,7 @@ export class AutoIndexer {
   start(): void {
     if (!this.#stopped) return;
     this.#stopped = false;
-    void this.#loop();
+    this.#inflight = this.#loop();
   }
 
   stop(): void {
@@ -30,12 +31,16 @@ export class AutoIndexer {
     }
   }
 
+  whenIdle(): Promise<void> {
+    return this.#inflight ?? Promise.resolve();
+  }
+
   kick(): void {
     if (this.#stopped || this.#running) return;
     if (this.#timer !== null) {
       clearTimeout(this.#timer);
       this.#timer = null;
-      void this.#loop();
+      this.#inflight = this.#loop();
     }
   }
 
@@ -72,6 +77,7 @@ export class AutoIndexer {
       console.error(`[auto-index] round failed: ${message}`);
     } finally {
       this.#running = false;
+      this.#inflight = null;
       this.#schedule();
     }
   }
