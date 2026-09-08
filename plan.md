@@ -44,7 +44,7 @@
 | 向量提供商 | **配置文件驱动**；优先级链：5070Ti(frp) → 4070Ti(frp) → 云端(待填，可走 new-api 网关)；**不再内置本地 CPU 兜底**（2026-09-05 变更：服务器 i3+16G 跑不动 fp32 bge-m3，实测峰值 20G+ 内存）；本地推理服务（Ollama/llama.cpp 等）如需要，按普通 OpenAI 兼容 provider 配置即可 | 健康检查 + 自动降级；降级只换"谁在算"，不换"算什么"（候选集限同模型，见"向量模型"行）；未配置任何可用提供商时 health 返回警告、索引/搜索报错，不静默兜底；Web 设置页可编辑（配地址/密钥/模型/权重/开关/超时），写 `config/providers.local.json`（gitignore，优先于样例文件），保存即热更新 |
 | 技术栈 | TypeScript / Node.js（唯一语言）+ Hono + SQLite + sqlite-vec | **不用 Docker**；Caddy + NSSM 属 P4 公网化（暂缓），当前 WSL1 内手动启动、无开机自启 |
 | 端范围 | 多台 Windows PC；手机不做；网页端/非 Agent 数据不做 | |
-| v1 信息源 | opencode（钩子）、WorkBuddy（轮询）、豆包（实验性）、zcode（钩子+回填，2026-09-06 增） | |
+| v1 信息源 | opencode（钩子）、WorkBuddy（hook 实时推送，2026-09-08 变更）、豆包（实验性）、zcode（钩子+回填，2026-09-06 增） | |
 | opencode 历史回填 | 做（本机已有 117 会话） | |
 | 更新/删除策略 | 跟随本地：本地改动/删除即同步（镜像语义），待实现时再细化 | |
 | 时效性 | 钩子源准实时；轮询源分钟级 | |
@@ -60,10 +60,10 @@
 
 ### WorkBuddy ✅
 - 存储：`~/.workbuddy/projects/*/*.jsonl`（Claude Code 式 JSONL）
-- 记录字段：`type`（`message`/`ai-title`）、`sessionId`、`timestamp`(ms)、`role`、`content[]`（`input_text`/`output_text`/`text`）、`cwd`
-- 注意：用户真实输入在 `<user_query>` 标签内，需过滤 `<system-reminder` 注入（参考 `D:\temp\session_daily.py`）
+- 记录字段：`type`（`message`/`ai-title`）、`sessionId`、`timestamp`(ms)、`role`、`content[]`（`input_text`/`output_text`/`text`）、`cwd`；行结构扁平（role/content/timestamp 在行顶层，2026-09-08 WORKSTATION-B 实测）
+- 注意：用户真实输入在 `<user_query>` 标签内，需过滤 `<system-reminder` 注入（参考 `D:\temp\session_daily.py`）；`type:"ai-title"` 行带 `aiTitle`（官方 AI 标题），做 title 首选
 - 兜底：`~/.workbuddy/workbuddy.db`（SQLite，`sessions` 表）
-- 采集路线：**轮询 JSONL**（分钟级）；本机为新装，真实数据在另一台机器
+- 采集路线：**hook 实时推送为主**（Stop + SessionEnd 挂 `~/.workbuddy/settings.json`，适配器在 `apps/collector`，0.1.0 已落地并本机实测）；文件直读作兜底/回填
 
 ### 豆包 ⚠️（实验性）
 - 存储：`%LOCALAPPDATA%\Doubao\User Data\Default\IndexedDB\chrome_doubao-chat_0.indexeddb.leveldb`（~2.1MB）+ 同名 `.blob`（~1.15MB）
@@ -135,7 +135,7 @@ messages / parts                -- 全量原文（JSON 存储或子表，实施�
 
 1. **P1 服务端核心**：Hono + SQLite(禁 WAL) + sqlite-vec + 本地 CPU bge-m3 兜底 + CRUD/搜索 API + token 鉴权 —— 用 CPU 先跑通全链路
 2. **P2 opencode 插件**：TS 插件钩子实时上传 + 历史回填脚本（117 会话）
-3. **P3 WorkBuddy 轮询器**：JSONL 监听 + 上传；部署到常用工作机
+3. **P3 WorkBuddy 采集**：hook 推送式采集（原轮询方案，2026-09-08 升级）；`apps/collector` 0.1.0 已落地
 4. **P4 公网化 + 提供商链（暂缓，2026-09-06：先局域网 HTTP:5328 + token）**：Caddy(HTTPS/DDNS) + frps/frpc + GPU 机 bge-m3 服务 + 提供商配置文件（5070Ti→4070Ti→云端）
 5. **P5 豆包实验适配器**：copy-then-read + LevelDB/IndexedDB 尽力解析
 6. **P6 收尾**：消费端验证（WorkBuddy 每日总结任务改走本 API）、文档、运行手册
@@ -146,7 +146,7 @@ messages / parts                -- 全量原文（JSON 存储或子表，实施�
 |---|---|
 | SQLite WAL 在 SMB 上有损坏风险（文件锁不可靠） | **禁用 WAL**：`journal_mode=TRUNCATE`（或 DELETE）+ `synchronous=FULL`；单人低写入量可接受；出现锁问题再回退本地盘 |
 | 豆包解析随版本更新失效 | 定位为实验性，独立模块、可整体停用；能采多少是多少 |
-| WorkBuddy 格式未经另一台机器实测 | 以 `session_daily.py` + 实机样本为准，采集器做好格式容错 |
+| WorkBuddy 格式未经另一台机器实测 | 2026-09-08 已在本机（WORKSTATION-B）实测并修正解析器；其他机器/版本以实机样本为准，采集器做好格式容错 |
 | 提供商切换导致向量空间不一致 | 向量表按模型分表；failover 候选仅限同模型 provider；会话记录 `indexed_model`，检索只查活跃模型空间；切换后旧空间会话自动进入待索引队列（`indexed_model != 活跃模型` 即视为未索引） |
 | 档案库成为"历史秘密集中地" | 现在不做；后期可在**采集端**加脱敏（客户端职责，不违反系统零加工原则） |
 | 数据只有 NAS 一份（用户决定不备份） | 接受；SQLite `integrity_check` 可作为日常健康检查项 |

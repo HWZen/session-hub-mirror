@@ -28,6 +28,19 @@
   - hook.ts：stdin JSON + 真实 transcript 文件 → 解析 → 上传（指向不可达地址）→ stderr 诊断 `upload failed ... fetch failed` → exit 0，stdout 静默 ✅
   - workbuddy-probe.mjs：stdin JSON → `stdin/<ts>-Stop.json` + `transcripts/*.head/.tail.jsonl` 落盘，exit 0 ✅
 
+## 实测结果（开发阶段内已完成）
+
+- hooks 配置已写入本机 `~/.workbuddy/settings.json`（Stop + SessionEnd，命令指向 **worktree** 路径），
+  WorkBuddy 侧无需 /hooks 确认即已加载生效（与文档"必须经 /hooks 面板确认"不符，实测优先）
+- 真实会话触发 hook 成功：`GET /v1/sessions?agent=workbuddy` 可见 agent=workbuddy 记录，服务端已自动索引
+- **实测发现真实 transcript schema 与 Claude Code 式假设有三处差异，已修正解析器**：
+  1. 行结构扁平：`role`/`content`/`timestamp`（数字毫秒）在行顶层，不在 `message.*` 里
+  2. 文本 part 类型是 `input_text`（用户）/ `output_text`（助手），不是 `text`
+  3. 存在 `type:"ai-title"` 行（`aiTitle` 字段），为官方 AI 会话标题 → title 优先采用，缺失时回退首条用户文本
+  - `type:"message"` 才是对话行；`function_call`/`function_call_result`/`reasoning`/`file-history-snapshot` 无 role，按 dropped 跳过
+  - 用户文本结构确认：`<system-reminder>` 块之后跟 `<user_query>真实输入</user_query>`，extractUserText 的 user_query 优先策略正确
+- 修正后用真实 transcript 重传验证（幂等覆盖）：title=aiTitle、user/assistant 消息文本均正确落库
+
 ## 人工验收（待用户执行，见遗留事项）
 
 按 plan 任务 6 的实测链路（挂 hook → `/hooks` 面板确认 → 真实会话采样 → 服务端可见）尚未执行，
@@ -35,13 +48,9 @@
 
 ## 遗留事项
 
-1. **实测与正式安装**（合并 master 后）：
-   - 把 `config/workbuddy-hooks.sample.json` 的 hooks 块合并进 `~/.workbuddy/settings.json`（样例命令指向主工作区绝对路径 `D:/Github/session-hub/...`，故须先合并 master 使 collector 代码就位）
-   - WorkBuddy 内 `/hooks` 面板审查确认一次（外部改文件不直接生效）
-   - 真实会话触发 Stop/SessionEnd，验证 `GET /v1/sessions?agent=workbuddy` 可见、Web 检索命中；诊断日志 `~/.config/session-hub/workbuddy-hook.log`
-2. **transcript JSONL 行 schema 实测修正**：解析器按 Claude Code 式假设实现（`type`/`message.role`/`message.content`/`timestamp`），若 probe 采样出实际 schema 有出入，按样本修正 `parse.ts`（防御式结构已就位，改动面小）
-3. 桌面端（v5.5.3）会话是否触发 hook 未证实；resume 时 session_id 是否复用未证实——实测后回填结论
-4. 实测通过后再更新根 `plan.md` / `AGENTS.md` 的 WorkBuddy 采集方式事实（轮询 → hook 实时推送为主、文件回填兜底）——本次提交按 plan 约定**未**提前改动这两处
+1. **hooks 命令当前指向 worktree 路径**：合并 master 后需把 `~/.workbuddy/settings.json` 里的命令改回主工作区路径（`D:/Github/session-hub/node_modules/.bin/tsx` + `D:/Github/session-hub/apps/collector/src/workbuddy/hook.ts`），否则 master 合并后删 worktree 会断链（exit 0 不阻塞会话，但采集停止）
+2. 桌面端（v5.5.3）会话是否触发 hook 未证实；resume 时 session_id 是否复用未证实——后续观察回填结论
+3. 实测已通过，根 `plan.md` / `AGENTS.md` 的 WorkBuddy 采集方式事实更新（轮询 → hook 实时推送为主、文件回填兜底）随本版本一并处理
 
 ## 环境备忘（开发过程发现并修复，与本版本代码无关）
 

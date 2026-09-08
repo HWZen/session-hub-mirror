@@ -33,6 +33,7 @@ interface ParsedLine {
   role: string | null;
   content: unknown;
   message: unknown;
+  aiTitle: string | null;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -86,17 +87,26 @@ function parseLine(line: string): ParsedLine | null {
   return {
     ts: parseTs(record["timestamp"]),
     role: role !== null && role.length >= 1 && role.length <= 64 ? role : null,
-    content: messageRecord ? messageRecord["content"] : undefined,
+    content: messageRecord
+      ? messageRecord["content"] !== undefined
+        ? messageRecord["content"]
+        : record["content"]
+      : record["content"],
     message,
+    aiTitle: typeof record["aiTitle"] === "string" && record["aiTitle"].length > 0 ? record["aiTitle"] : null,
   };
 }
+
+const TEXT_PART_TYPES = new Set(["text", "input_text", "output_text"]);
 
 function joinTextParts(parts: unknown[]): { text: string | null; raw: unknown } {
   const pieces: string[] = [];
   for (const part of parts) {
     const p = asRecord(part);
     if (!p) continue;
-    if (p["type"] !== "text" || typeof p["text"] !== "string") continue;
+    if (!TEXT_PART_TYPES.has(typeof p["type"] === "string" ? p["type"] : "") || typeof p["text"] !== "string") {
+      continue;
+    }
     pieces.push(p["text"]);
   }
   const raw = parts.length === 1 ? (parts[0] ?? null) : parts;
@@ -119,6 +129,7 @@ export function parseTranscript(jsonl: string, source: WorkbuddySource): ParseRe
 
   const messages: MessageInput[] = [];
   let firstUserText: string | null = null;
+  let aiTitle: string | null = null;
   let firstTs: number | null = null;
   let lastTs: number | null = null;
 
@@ -133,6 +144,7 @@ export function parseTranscript(jsonl: string, source: WorkbuddySource): ParseRe
       if (firstTs === null) firstTs = parsed.ts;
       lastTs = parsed.ts;
     }
+    if (parsed.aiTitle !== null && aiTitle === null) aiTitle = parsed.aiTitle;
     if (parsed.role === null) {
       stats.dropped++;
       continue;
@@ -176,6 +188,7 @@ export function parseTranscript(jsonl: string, source: WorkbuddySource): ParseRe
     messages: trimmedMessages,
   };
   if (source.cwd) payload.cwd = truncateText(source.cwd, 2000);
-  if (firstUserText !== null) payload.title = firstUserText.slice(0, MAX_TITLE_LENGTH);
+  if (aiTitle !== null) payload.title = truncateText(aiTitle, 2000);
+  else if (firstUserText !== null) payload.title = firstUserText.slice(0, MAX_TITLE_LENGTH);
   return { payload, stats };
 }

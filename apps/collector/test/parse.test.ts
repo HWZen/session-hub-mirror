@@ -159,4 +159,49 @@ describe("parseTranscript", () => {
     expect(payload!.messages[0]!.text).toBeUndefined();
     expect(payload!.messages[0]!.raw).toMatchObject({ type: "tool_use", id: "t1" });
   });
+
+  it("parses flat real-workbuddy lines with top-level role/content and input_text/output_text parts", () => {
+    const jsonl = [
+      JSON.stringify({
+        id: "u1",
+        timestamp: 1788849058324,
+        type: "message",
+        role: "user",
+        content: [
+          { type: "input_text", text: "<system-reminder>ctx</system-reminder><user_query>do it</user_query>" },
+        ],
+      }),
+      JSON.stringify({
+        id: "f1",
+        timestamp: 1788849074595,
+        type: "function_call",
+        name: "read",
+      }),
+      JSON.stringify({
+        id: "a1",
+        timestamp: 1788849093734,
+        type: "message",
+        role: "assistant",
+        status: "completed",
+        content: [{ type: "output_text", text: "done" }],
+      }),
+    ].join("\n");
+    const { payload, stats } = parseTranscript(jsonl, { sessionId: "ses_flat", machine: "M1" });
+    expect(stats).toEqual({ lines: 3, parseErrors: 0, kept: 2, dropped: 1 });
+    expect(payload!.created_at).toBe(1788849058324);
+    expect(payload!.updated_at).toBe(1788849093734);
+    expect(payload!.title).toBe("do it");
+    expect(payload!.messages[0]).toMatchObject({ role: "user", text: "do it", ts: 1788849058324 });
+    expect(payload!.messages[1]).toMatchObject({ role: "assistant", text: "done", ts: 1788849093734 });
+  });
+
+  it("prefers ai-title line for title", () => {
+    const jsonl = [
+      JSON.stringify({ id: "t1", timestamp: 1788849071525, type: "ai-title", aiTitle: "会议要点", sessionId: "s" }),
+      userLine("fallback title", 1000),
+    ].join("\n");
+    const { payload, stats } = parseTranscript(jsonl, source);
+    expect(payload!.title).toBe("会议要点");
+    expect(stats.dropped).toBe(1);
+  });
 });

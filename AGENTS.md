@@ -69,7 +69,7 @@ server/               # 服务端子系统
   data/               #   运行时数据（db、模型缓存、日志，gitignore）
 skills/session-hub/   # Agent Skill（SKILL.md：教外部 Agent 直调 HTTP API；接口动态发现不固化）
 plugins/opencode/     # opencode 官方插件（TS，事件钩子上传；未建）
-apps/collector/       # 采集器守护进程（未建；WorkBuddy 轮询、豆包适配器在此）
+apps/collector/       # 采集器子系统（WorkBuddy hook 适配器已建；豆包适配器待建）
 docs/                 # 运行手册（后期）
 ```
 
@@ -78,7 +78,7 @@ docs/                 # 运行手册（后期）
 | 源 | 本地存储路径 | 采集方式 |
 |---|---|---|
 | opencode | `~/.local/share/opencode/opencode.db`（SQLite） | 插件钩子实时；直读 DB 兜底/回填 |
-| WorkBuddy | `~/.workbuddy/projects/*/*.jsonl` | 轮询（copy-then-read 不需要，可直接读）；用户输入在 `<user_query>` 标签内，过滤 `<system-reminder` |
+| WorkBuddy | `~/.workbuddy/projects/*/*.jsonl` | **hook 实时推送为主**（Stop/SessionEnd → `apps/collector` 适配器）；文件直读兜底/回填；用户输入在 `<user_query>` 标签内，过滤 `<system-reminder`；title 首选行内 `aiTitle` |
 | 豆包 | `%LOCALAPPDATA%\Doubao\User Data\Default\IndexedDB\chrome_doubao-chat_0.indexeddb.leveldb` | **实验性**；文件被锁，必须先复制再解析；独立模块可整体停用 |
 
 采集器对源文件**只读**；所有源会话带 `agent`/`machine`/`source_id` 三元组做幂等 upsert；
