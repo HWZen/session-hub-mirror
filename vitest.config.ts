@@ -10,7 +10,7 @@ export default defineConfig({
     },
   },
   test: {
-    include: ["packages/**/*.test.ts", "server/apps/**/*.test.ts", "plugins/**/*.test.ts"],
+    include: ["packages/**/*.test.ts", "server/apps/**/*.test.ts", "plugins/**/*.test.ts", "apps/**/*.test.ts"],
     environment: "node",
     pool: "forks",
   },

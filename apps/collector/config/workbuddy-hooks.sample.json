@@ -1,0 +1,32 @@
+{
+  "_readme": [
+    "WorkBuddy hook 配置样例：把 hooks 块合并进 ~/.workbuddy/settings.json（保留其余字段）。",
+    "安装步骤：1) 确认 session-hub collector 已部署在下方绝对路径；2) 合并 hooks 块；",
+    "3) 在 WorkBuddy 会话里执行 /hooks 打开面板审查并确认一次（外部改文件不直接生效）；",
+    "4) 配置来源见 ~/.config/session-hub/config.json 或环境变量 SESSION_HUB_URL / SESSION_HUB_TOKEN；",
+    "5) 诊断日志在 ~/.config/session-hub/workbuddy-hook.log，stdout 恒为空，任何失败一律 exit 0 不阻塞会话。",
+    "注意：命令为 bash 语法 + 绝对路径（WorkBuddy 在 Windows 强制 Git Bash 执行）；换机器/换盘符请同步修改路径。"
+  ],
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"D:/Github/session-hub/node_modules/.bin/tsx\" \"D:/Github/session-hub/apps/collector/src/workbuddy/hook.ts\""
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"D:/Github/session-hub/node_modules/.bin/tsx\" \"D:/Github/session-hub/apps/collector/src/workbuddy/hook.ts\""
+          }
+        ]
+      }
+    ]
+  }
+}
