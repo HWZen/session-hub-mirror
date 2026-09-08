@@ -7,9 +7,10 @@
   - `src/workbuddy/parse.ts`：transcript JSONL → `SessionUpsertInput` 防御式解析器（坏行跳过、非法 role 跳过、`<user_query>` 提取、纯 `<system-reminder` 丢弃、text 1MB 截断、messages 保留尾部 5000、title 取首条用户文本截 100 字符、时间戳取行内时间首/末行、session_id 缺失时回退 transcript 文件名）
   - `src/workbuddy/upload.ts`：PUT `/v1/sessions` + Bearer + AbortController 超时
   - `src/workbuddy/hook.ts`：入口 stdin JSON → parse → zod safeParse（`sessionUpsertSchema`）→ upload；**stdout 恒为空**、诊断走 stderr + `~/.config/session-hub/workbuddy-hook.log`（仅元数据无正文）、**任何失败一律 exit 0**
+  - `src/workbuddy/backfill.ts`：**历史会话回填**（CLI：`npm run backfill:workbuddy -w @session-hub/collector`）——遍历 `~/.workbuddy/projects/*/*.jsonl`，以 `session_id=文件名 + hook_event_name=Backfill` 合成 stdin 复用 `runHook` 同一条生产链路（parse → zod → 幂等 upsert）；0 字节文件跳过、schema 不合跳过、其余失败计入 failed 并以 exit 1 收尾；progress 每 20 条输出一行（仅元数据）
   - `scripts/workbuddy-probe.mjs`：采样探测（stdin JSON 落盘 + transcript 头尾各 N 行拷贝，`WB_PROBE_DIR`/`WB_PROBE_HEAD`/`WB_PROBE_TAIL` 可调，默认落 `apps/collector/data/probe/`，已 gitignore）
   - `config/workbuddy-hooks.sample.json`：hooks JSON 片段（Stop + SessionEnd）+ 安装步骤说明
-  - `test/parse.test.ts`（16 例）、`test/hook.test.ts`（10 例，含真实 HTTP fake server 验证 payload/Bearer/超时不阻塞）、`test/config.test.ts`（3 例）
+  - `test/parse.test.ts`（16 例）、`test/hook.test.ts`（10 例，含真实 HTTP fake server 验证 payload/Bearer/超时不阻塞）、`test/config.test.ts`（3 例）、`test/backfill.test.ts`（3 例：遍历上传+空文件跳过、单点失败继续并报告、目录缺失归零）
 - 根 `package.json`：build 追加 `npm run typecheck -w @session-hub/collector`
 - 根 `vitest.config.ts`：test include 追加 `apps/**/*.test.ts`
 - 根 `.gitignore`：追加 `apps/collector/data/`
@@ -22,11 +23,12 @@
 
 ## 测试/验收结果
 
-- 根目录 `npm test`：23 文件 180 例全绿（含 collector 29 例）
+- 根目录 `npm test`：24 文件 185 例全绿（含 collector 32 例）
 - 根目录 `npm run build`：全绿（tsc -b + 三插件 typecheck + web 构建）
 - CLI 冒烟（真实 tsx 进程）：
   - hook.ts：stdin JSON + 真实 transcript 文件 → 解析 → 上传（指向不可达地址）→ stderr 诊断 `upload failed ... fetch failed` → exit 0，stdout 静默 ✅
   - workbuddy-probe.mjs：stdin JSON → `stdin/<ts>-Stop.json` + `transcripts/*.head/.tail.jsonl` 落盘，exit 0 ✅
+  - backfill.ts（真实数据全量回填）：`~/.workbuddy/projects` 扫出 137 个历史 transcript → **137/137 上传成功、0 失败 0 跳过**；服务端 `GET /v1/stats` 确认 agent=workbuddy 会话达 138 个（与实时 hook 三元组一致，幂等覆盖无重复）✅
 
 ## 实测结果（开发阶段内已完成）
 
@@ -48,9 +50,16 @@
 
 ## 遗留事项
 
-1. **hooks 命令当前指向 worktree 路径**：合并 master 后需把 `~/.workbuddy/settings.json` 里的命令改回主工作区路径（`D:/Github/session-hub/node_modules/.bin/tsx` + `D:/Github/session-hub/apps/collector/src/workbuddy/hook.ts`），否则 master 合并后删 worktree 会断链（exit 0 不阻塞会话，但采集停止）
+1. ~~hooks 命令当前指向 worktree 路径~~ **已收尾**：合并 master 后已把 `~/.workbuddy/settings.json` 的 Stop/SessionEnd 命令切回主工作区路径（`D:/Github/session-hub/node_modules/.bin/tsx` + `D:/Github/session-hub/apps/collector/src/workbuddy/hook.ts`），并冒烟验证上传成功（见"合并收尾"）
 2. 桌面端（v5.5.3）会话是否触发 hook 未证实；resume 时 session_id 是否复用未证实——后续观察回填结论
-3. 实测已通过，根 `plan.md` / `AGENTS.md` 的 WorkBuddy 采集方式事实更新（轮询 → hook 实时推送为主、文件回填兜底）随本版本一并处理
+3. ~~plan.md / AGENTS.md 事实更新~~ 已随 aa69fbe 完成
+4. 语义索引：回填后服务端有 121 个 unindexed，服务端后台异步索引自动补齐（reindex 同步接口对大批量会超时，不阻塞入库与后续检索）
+
+## 合并收尾（master 合并当日在本机执行）
+
+- `git merge workbuddy_0.1.0`（fast-forward，master 无分叉）
+- `~/.workbuddy/settings.json` 两处 hook 命令路径：worktree → 主工作区（见遗留 1），先备份 settings.json
+- 冒烟：用主工作区路径跑 hook.ts + 真实 transcript stdin → 返回 200/201 即链路通
 
 ## 环境备忘（开发过程发现并修复，与本版本代码无关）
 

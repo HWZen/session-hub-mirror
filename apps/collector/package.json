@@ -6,6 +6,7 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "hook:workbuddy": "tsx src/workbuddy/hook.ts",
+    "backfill:workbuddy": "tsx src/workbuddy/backfill.ts",
     "probe:workbuddy": "node scripts/workbuddy-probe.mjs"
   }
 }
