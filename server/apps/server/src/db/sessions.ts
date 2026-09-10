@@ -8,7 +8,7 @@ import type {
   SessionUpsertInput,
   StatsSummary,
 } from "@session-hub/shared";
-import { clearSessionEmbeddings } from "./embeddings.js";
+import { clearSessionChunks } from "./chunks.js";
 import type { SqliteDatabase } from "./connection.js";
 
 export interface SessionListItem extends SessionRecord {
@@ -23,6 +23,15 @@ export interface ListOptions {
 export interface FilterClause {
   sql: string;
   params: Array<string | number>;
+}
+
+export interface MessageSourceRow {
+  id: number;
+  idx: number;
+  role: string;
+  text: string;
+  raw: unknown;
+  agent: string;
 }
 
 export function escapeLike(value: string): string {
@@ -148,7 +157,7 @@ export class SessionRepository {
           )
           .run(id, agent, machine, source_id, title ?? null, cwd ?? null, created_at, updated_at);
       }
-      clearSessionEmbeddings(this.#db, id);
+      clearSessionChunks(this.#db, id);
       this.#db.prepare("DELETE FROM messages WHERE session_id = ?").run(id);
       const insertMessage = this.#db.prepare(
         "INSERT INTO messages (session_id, idx, role, text, ts, raw) VALUES (?, ?, ?, ?, ?, ?)",
@@ -228,10 +237,29 @@ export class SessionRepository {
     return rows.map(mapSessionRow);
   }
 
-  messageTexts(sessionId: string): Array<{ id: number; idx: number; text: string }> {
-    return this.#db
-      .prepare("SELECT id, idx, text FROM messages WHERE session_id = ? AND text <> '' ORDER BY idx")
-      .all(sessionId) as Array<{ id: number; idx: number; text: string }>;
+  messageSources(sessionId: string): MessageSourceRow[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT m.id AS id, m.idx AS idx, m.role AS role, m.text AS text, m.raw AS raw, s.agent AS agent
+         FROM messages m JOIN sessions s ON s.id = m.session_id
+         WHERE m.session_id = ? ORDER BY m.idx`,
+      )
+      .all(sessionId) as Array<{
+      id: number;
+      idx: number;
+      role: string;
+      text: string;
+      raw: string | null;
+      agent: string;
+    }>;
+    return rows.map((r) => ({
+      id: r.id,
+      idx: r.idx,
+      role: r.role,
+      text: r.text,
+      raw: r.raw === null ? null : safeParseJson(r.raw),
+      agent: r.agent,
+    }));
   }
 
   stats(activeModel: string | null): StatsSummary {

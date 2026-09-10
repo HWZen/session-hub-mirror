@@ -84,6 +84,32 @@ function dropOrphanShadowTables(db: SqliteDatabase): void {
   }
 }
 
+const MIGRATION_0004_SQL = `
+  CREATE TABLE IF NOT EXISTS message_chunks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id INTEGER NOT NULL REFERENCES messages (id) ON DELETE CASCADE,
+    chunk_no INTEGER NOT NULL,
+    source TEXT NOT NULL,
+    text TEXT NOT NULL,
+    char_start INTEGER NOT NULL,
+    UNIQUE (message_id, chunk_no, source)
+  );
+  CREATE INDEX IF NOT EXISTS idx_message_chunks_message ON message_chunks (message_id);
+`;
+
+function dropMessageEmbeddingsTables(db: SqliteDatabase): void {
+  const vtabs = db
+    .prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'message_embeddings%' AND sql LIKE 'CREATE VIRTUAL TABLE%'",
+    )
+    .all() as Array<{ name: string }>;
+  for (const { name } of vtabs) db.exec(`DROP TABLE IF EXISTS "${name}"`);
+  const leftovers = db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'message_embeddings%'")
+    .all() as Array<{ name: string }>;
+  for (const { name } of leftovers) db.exec(`DROP TABLE IF EXISTS "${name}"`);
+}
+
 function repairRenamedVec0Table(db: SqliteDatabase): void {
   const targetShadowInfo = `${BGE_M3_TABLE}_info`;
   const legacyShadowInfo = `${LEGACY_EMBEDDINGS_TABLE}_info`;
@@ -116,6 +142,14 @@ const MIGRATIONS: ReadonlyArray<{ name: string; up: (db: SqliteDatabase) => void
     name: "0003_repair_vec0_shadow_tables",
     up: (db) => {
       repairRenamedVec0Table(db);
+    },
+  },
+  {
+    name: "0004_chunk_indexing",
+    up: (db) => {
+      dropMessageEmbeddingsTables(db);
+      db.exec(MIGRATION_0004_SQL);
+      db.exec("UPDATE sessions SET indexed_at = NULL, indexed_model = NULL");
     },
   },
 ];

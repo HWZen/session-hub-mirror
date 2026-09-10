@@ -4,6 +4,7 @@ import { FailingEmbedProvider, TEST_TOKEN, buildApp, postSearch, putSession } fr
 const AUTH = { headers: { authorization: `Bearer ${TEST_TOKEN}` } };
 const NEEDLE = "how to fix ECONNRESET in nodejs server";
 const UNRELATED = "hotpot recipe with beef and tofu";
+const REASONING = "internal reasoning about connection pool exhaustion";
 
 async function seed(parts: ReturnType<typeof buildApp>) {
   const { app, settleIndexing } = parts;
@@ -63,7 +64,7 @@ describe("semantic search", () => {
       results: Array<{
         session: { source_id: string; agent: string };
         distance: number;
-        snippets: Array<{ text: string; message_idx: number }>;
+        snippets: Array<{ text: string; message_idx: number; source: string }>;
       }>;
     };
     expect(body.results.length).toBeGreaterThanOrEqual(1);
@@ -71,7 +72,27 @@ describe("semantic search", () => {
     expect(body.results[0]!.distance).toBeLessThan(0.01);
     expect(body.results[0]!.snippets[0]!.text).toBe(NEEDLE);
     expect(body.results[0]!.snippets[0]!.message_idx).toBe(0);
+    expect(body.results[0]!.snippets[0]!.source).toBe("text");
     expect(body.provider).toBe("fake");
+  });
+
+  it("indexes reasoning extracted from raw and tags the snippet source as reasoning", async () => {
+    const parts = buildApp();
+    const { app, settleIndexing } = parts;
+    await putSession(app, {
+      ...opencodeBody("sR"),
+      messages: [{ role: "assistant", text: "", ts: 1, raw: [{ type: "reasoning", text: REASONING }] }],
+    });
+    await settleIndexing();
+    const res = await postSearch(app, { query: REASONING, top_k: 5 });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      results: Array<{ session: { source_id: string }; snippets: Array<{ text: string; source: string }> }>;
+    };
+    expect(body.results).toHaveLength(1);
+    expect(body.results[0]!.session.source_id).toBe("sR");
+    expect(body.results[0]!.snippets[0]!.text).toBe(REASONING);
+    expect(body.results[0]!.snippets[0]!.source).toBe("reasoning");
   });
 
   it("applies filters to search results", async () => {

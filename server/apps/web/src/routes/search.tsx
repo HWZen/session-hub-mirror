@@ -30,7 +30,7 @@ export const Route = createFileRoute("/search")({
 interface NormalizedHit {
   session: { id: string; agent: string; machine: string; source_id: string; title: string | null; updated_at: number };
   distance: number | null;
-  lines: Array<{ message_idx: number; role: string; text: string }>;
+  lines: Array<{ message_idx: number; role: string; text: string; source: "text" | "reasoning" }>;
 }
 
 interface NormalizedResult {
@@ -74,7 +74,12 @@ function SearchPage() {
           items: res.items.map((hit) => ({
             session: hit.session,
             distance: null,
-            lines: hit.hits.map((h) => ({ message_idx: h.message_idx, role: h.role, text: h.snippet })),
+            lines: hit.hits.map((h) => ({
+              message_idx: h.message_idx,
+              role: h.role,
+              text: h.snippet,
+              source: "text" as const,
+            })),
           })),
         };
       }
@@ -93,7 +98,12 @@ function SearchPage() {
         items: res.results.map((hit) => ({
           session: hit.session,
           distance: hit.distance,
-          lines: hit.snippets.map((sn) => ({ message_idx: sn.message_idx, role: sn.role, text: sn.text })),
+          lines: hit.snippets.map((sn) => ({
+            message_idx: sn.message_idx,
+            role: sn.role,
+            text: sn.text,
+            source: sn.source,
+          })),
         })),
       };
     },
@@ -301,14 +311,26 @@ function SearchPage() {
                   <div className="flex flex-col gap-2 border-t border-border/70 pt-2.5">
                     {hit.lines.map((line, i) => (
                       <div key={`${line.message_idx}-${i}`} className="flex gap-2.5 text-xs leading-5">
-                        <span
-                          className={cn(
-                            "mt-0.5 shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-medium",
-                            line.role === "user" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
-                          )}
-                        >
-                          {line.role}
-                        </span>
+                        <div className="mt-0.5 flex shrink-0 flex-col items-start gap-1">
+                          <span
+                            className={cn(
+                              "rounded-md px-1.5 py-0.5 text-[10px] font-medium",
+                              line.role === "user" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
+                            )}
+                          >
+                            {line.role}
+                          </span>
+                          <span
+                            className={cn(
+                              "rounded-md px-1.5 py-0.5 text-[10px] font-medium",
+                              line.source === "reasoning"
+                                ? "bg-warning/15 text-warning"
+                                : "bg-muted text-muted-foreground",
+                            )}
+                          >
+                            {line.source === "reasoning" ? "思考" : "正文"}
+                          </span>
+                        </div>
                         <p className="min-w-0 flex-1 break-words text-muted-foreground">{line.text}</p>
                       </div>
                     ))}

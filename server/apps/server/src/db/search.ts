@@ -1,16 +1,20 @@
-import type { SearchHit, SearchSnippet, SessionFilters } from "@session-hub/shared";
+import type { MessageSource, SearchHit, SearchSnippet, SessionFilters } from "@session-hub/shared";
 import { buildSessionFilter } from "./sessions.js";
-import { embeddingTableFor, toVectorBlob } from "./embeddings.js";
+import { chunkEmbeddingTableFor } from "./chunks.js";
+import { toVectorBlob } from "./embeddings.js";
 import type { SqliteDatabase } from "./connection.js";
 
 const SNIPPET_MAX_CHARS = 500;
 const MAX_SNIPPETS_PER_SESSION = 5;
+const KNN_CANDIDATE_MULTIPLIER = 50;
+const KNN_CANDIDATE_MAX = 1024;
 
 interface KnnRow {
   distance: number;
+  source: MessageSource;
+  chunk_text: string;
   message_idx: number;
   role: string;
-  text: string;
   ts: number | null;
   id: string;
   agent: string;
@@ -40,23 +44,25 @@ export function searchSessions(
   topK: number,
   filters: SessionFilters,
 ): SearchHit[] {
-  const table = embeddingTableFor(model);
+  const table = chunkEmbeddingTableFor(model);
   if (!hasTable(db, table)) return [];
   const { sql: where, params } = buildSessionFilter(filters);
-  const k = Math.min(Math.max(topK * 20, topK), 512);
+  const k = Math.min(Math.max(topK * KNN_CANDIDATE_MULTIPLIER, topK), KNN_CANDIDATE_MAX);
   const rows = db
     .prepare(
       `WITH knn AS (
-         SELECT message_id, distance
+         SELECT chunk_id, distance
          FROM ${table}
          WHERE embedding MATCH ? AND k = ?
        )
-       SELECT knn.distance AS distance, m.idx AS message_idx, m.role AS role, m.text AS text, m.ts AS ts,
+       SELECT knn.distance AS distance, c.source AS source, c.text AS chunk_text,
+              m.idx AS message_idx, m.role AS role, m.ts AS ts,
               s.id AS id, s.agent AS agent, s.machine AS machine, s.source_id AS source_id,
               s.title AS title, s.cwd AS cwd, s.created_at AS created_at, s.updated_at AS updated_at,
               s.deleted_at AS deleted_at, s.indexed_at AS indexed_at, s.indexed_model AS indexed_model
        FROM knn
-       JOIN messages m ON m.id = knn.message_id
+       JOIN message_chunks c ON c.id = knn.chunk_id
+       JOIN messages m ON m.id = c.message_id
        JOIN sessions s ON s.id = m.session_id
        ${where}
        ORDER BY knn.distance`,
@@ -74,8 +80,9 @@ export function searchSessions(
       entry.snippets.push({
         message_idx: row.message_idx,
         role: row.role,
-        text: truncate(row.text),
+        text: truncate(row.chunk_text),
         ts: row.ts,
+        source: row.source,
         distance: row.distance,
       });
     }

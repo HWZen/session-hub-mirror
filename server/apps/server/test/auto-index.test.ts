@@ -41,11 +41,11 @@ describe("auto indexer runOnce", () => {
     );
     expect(((await put2.json()) as { created: boolean }).created).toBe(true);
     await settleIndexing();
-    expect(vectorCount(db, "message_embeddings_model_a")).toBe(3);
+    expect(vectorCount(db, "chunk_embeddings_model_a")).toBe(3);
 
     registry.replaceRemoteProviders([new FakeEmbedProvider("pb", "model-b", 100, 16)]);
     expect(repo.listUnindexed(10, "model-b")).toHaveLength(2);
-    expect(vectorCount(db, "message_embeddings_model_a")).toBe(3);
+    expect(vectorCount(db, "chunk_embeddings_model_a")).toBe(3);
 
     const auto = new AutoIndexer(repo, indexer, registry, 30_000);
     await expect(auto.runOnce()).resolves.toBe(2);
@@ -62,7 +62,7 @@ describe("auto indexer runOnce", () => {
     };
     expect(stats.indexed).toBe(2);
     expect(stats.unindexed).toBe(0);
-    expect(vectorCount(db, "message_embeddings_model_b")).toBe(3);
+    expect(vectorCount(db, "chunk_embeddings_model_b")).toBe(3);
     expect(repo.listUnindexed(10, "model-b")).toHaveLength(0);
   });
 

@@ -276,7 +276,7 @@ describe("shutdown runner（进程内集成：真实 http server + 临时 db）"
     sqliteVec.load(reopened);
     const count = reopened.prepare("SELECT COUNT(*) AS n FROM sessions").get() as { n: number };
     expect(count.n).toBe(1);
-    const vectors = reopened.prepare("SELECT COUNT(*) AS n FROM message_embeddings_bge_m3").get() as { n: number };
+    const vectors = reopened.prepare("SELECT COUNT(*) AS n FROM chunk_embeddings_bge_m3").get() as { n: number };
     expect(vectors.n).toBe(2);
     reopened.close();
     const journalPath = `${dbPath}-journal`;

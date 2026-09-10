@@ -84,6 +84,23 @@ docs/                 # 运行手册（后期）
 采集器对源文件**只读**；所有源会话带 `agent`/`machine`/`source_id` 三元组做幂等 upsert；
 时间戳取源数据时间（创建 + 最后修改），不用上传时间。
 
+## 新 Agent 接入契约（raw 归一化）
+
+**以后为新 Agent 做 hook/插件时，必须注意上传的 `raw` 格式**——服务端按统一契约从 `raw` 抽取
+`text` 与 `reasoning` 做切片索引，格式不对该 Agent 的思考就索引不到：
+
+- 思考（reasoning）一律以 part `{type:"reasoning", text}` 放入所属消息的 `raw`，与 `text` parts 分离；
+  固定字段名 `text`，**不新造字段**（如 `thinking`；服务端虽兼容 `thinking`，但新增适配器统一用 `text`）。
+- `raw` 顶层形态可以是 数组（多 part）/ 单对象（单 part）/ 字符串 / null，但 reasoning part 的结构与字段名
+  必须符合上述契约。
+- 各源原始格式不同，**由适配器/插件负责归一化后再上传**：opencode / zcode 是 parts 数组
+  （`type ∈ {text, reasoning, tool, step-start, step-finish, file, patch}`，reasoning 取 `.text`）；
+  WorkBuddy 是 OpenAI Responses 风格（`input_text` / `output_text` + 独立 `reasoning` 行，无 role，
+  需采集器自行挂到消息 raw 并归一成 `{type:"reasoning", text}`）。
+- 思考仅提供加密/摘要而无明文时，适配器需评估其索引价值并记录（无明文则跳过）。
+- 现有实现参考：`server/apps/server/src/indexing/raw-extract.ts`（归一化）、
+  `plugins/opencode`、`plugins/zcode`、`apps/collector`。
+
 ## Embedding 提供商链
 
 优先级（配置文件驱动）：`5070Ti(frpc) → 4070Ti(frpc) → 云端(待填)`；**无内置本地兜底**，本地推理服务（Ollama 等）按普通 OpenAI 兼容 provider 配置。

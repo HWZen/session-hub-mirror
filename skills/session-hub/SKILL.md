@@ -163,10 +163,12 @@ POST /v1/search?help=1
 # 2. 执行
 POST /v1/search
 {"query": "上周修的那个登录超时问题", "top_k": 5}
-→ {"model": "bge-m3", "provider": "…", "results": [{"session": {…}, "distance": 0.18, "snippets": […]}]}
+→ {"model": "bge-m3", "provider": "…", "results": [{"session": {…}, "distance": 0.18, "snippets": [{"message_idx": 3, "role": "assistant", "text": "…", "ts": …, "source": "reasoning", "distance": 0.18}]}]}
 ```
 
-`results` 按距离升序；`snippets` 是命中消息片段，可快速定位上下文。可带 `filters`
+`results` 按距离升序；`snippets` 是命中**切片**（chunk），可快速定位上下文。索引粒度是切片级：
+正文（`source="text"`，取自消息 `text`）与思考（`source="reasoning"`，从消息 `raw` 抽取）分别切片，
+同一命中消息可能返回多个切片；`text` 截断至 500 字符。可带 `filters`
 （agent/machine/source_id/时间范围/title）缩小范围，字段同 `GET /v1/sessions`。
 
 ### 场景：关键词检索（grep 式子串匹配）

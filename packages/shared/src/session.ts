@@ -91,11 +91,14 @@ export interface SessionDetail extends SessionRecord {
   messages: MessageRecord[];
 }
 
+export type MessageSource = "text" | "reasoning";
+
 export interface SearchSnippet {
   message_idx: number;
   role: string;
   text: string;
   ts: number | null;
+  source: MessageSource;
   distance: number;
 }
 

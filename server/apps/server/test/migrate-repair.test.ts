@@ -4,11 +4,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createDb, type SqliteDatabase } from "../src/db/connection.js";
 import { migrate } from "../src/db/migrate.js";
-import { searchSessions } from "../src/db/search.js";
 import { toVectorBlob } from "../src/db/embeddings.js";
-import { hashVector, sessionBody } from "./helpers.js";
-import { SessionRepository } from "../src/db/sessions.js";
-import type { SessionUpsertInput } from "@session-hub/shared";
+import { hashVector } from "./helpers.js";
 
 function tableNames(db: SqliteDatabase, pattern: string): string[] {
   return (
@@ -42,7 +39,7 @@ describe("0003 repair vec0 shadow tables", () => {
     const db = createDb(path.join(dir, "repair.db"));
     migrate(db);
 
-    db.exec("DROP TABLE message_embeddings_bge_m3");
+    db.exec("DROP TABLE IF EXISTS message_embeddings_bge_m3");
     seedLegacyVectors(db, 3);
     db.exec("CREATE TABLE message_embeddings_trash (id INTEGER PRIMARY KEY)");
     db.exec("ALTER TABLE message_embeddings RENAME TO message_embeddings_bge_m3");
@@ -80,42 +77,13 @@ describe("0003 repair vec0 shadow tables", () => {
     db.close();
   });
 
-  it("repaired vectors stay searchable under the bge-m3 model space", () => {
-    const dir = mkdtempSync(path.join(tmpdir(), "session-hub-repair-search-"));
-    const db = createDb(path.join(dir, "repair-search.db"));
-    migrate(db);
-
-    db.exec("DROP TABLE message_embeddings_bge_m3");
-    seedLegacyVectors(db, 1);
-    const repo = new SessionRepository(db);
-    const { id: sessionId } = repo.upsert(sessionBody() as unknown as SessionUpsertInput);
-    const message = db.prepare("SELECT id FROM messages WHERE session_id = ? ORDER BY idx LIMIT 1").get(sessionId) as {
-      id: number;
-    };
-    const vector = hashVector("hello world");
-    db.prepare("INSERT INTO message_embeddings (message_id, embedding) VALUES (?, ?)").run(
-      BigInt(message.id),
-      toVectorBlob(vector),
-    );
-    db.exec("ALTER TABLE message_embeddings RENAME TO message_embeddings_bge_m3");
-
-    forgetMigration(db, "0003_repair_vec0_shadow_tables");
-    migrate(db);
-
-    const hits = searchSessions(db, "bge-m3", vector, 5, {});
-    expect(hits).toHaveLength(1);
-    expect(hits[0]!.session.id).toBe(sessionId);
-    expect(hits[0]!.distance).toBeLessThan(0.01);
-    db.close();
-  });
-
   it("is a no-op on healthy and fresh databases", () => {
     const dir = mkdtempSync(path.join(tmpdir(), "session-hub-repair-noop-"));
     const db = createDb(path.join(dir, "noop.db"));
     migrate(db);
-    expect(tableExists(db, "message_embeddings_bge_m3")).toBe(true);
-    expect(tableExists(db, "message_embeddings_bge_m3_info")).toBe(true);
-    expect(tableExists(db, "message_embeddings")).toBe(false);
+    expect(tableExists(db, "message_embeddings_bge_m3")).toBe(false);
+    expect(tableNames(db, "message_embeddings%")).toEqual([]);
+    expect(tableExists(db, "message_chunks")).toBe(true);
     const before = tableNames(db, "message_embeddings%");
     migrate(db);
     expect(tableNames(db, "message_embeddings%")).toEqual(before);

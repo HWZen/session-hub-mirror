@@ -198,7 +198,11 @@ export const endpoints: EndpointHelp[] = [
     returns: [
       { name: "model", type: "string", desc: "实际使用的 embedding 模型" },
       { name: "provider", type: "string", desc: "实际服务的提供商名" },
-      { name: "results", type: "object[]", desc: "{ session, distance, snippets } 按距离升序；snippets 为命中消息片段" },
+      {
+        name: "results",
+        type: "object[]",
+        desc: "{ session, distance, snippets } 按距离升序；snippets 为命中切片 { message_idx, role, text, ts, source, distance }，source 为 text（正文）｜reasoning（思考）",
+      },
     ],
     example: { query: "上周修的那个登录超时问题", top_k: 5 },
     errors: [
