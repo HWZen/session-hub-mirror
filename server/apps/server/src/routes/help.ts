@@ -155,9 +155,25 @@ export const endpoints: EndpointHelp[] = [
   {
     method: "GET",
     path: "/v1/sessions/:id",
-    summary: "获取单个会话详情（含全部消息）",
+    summary: "获取会话对话消息（仅 messages，不含会话元数据）",
+    params: [{ name: "id", in: "path", type: "string", required: true, desc: "会话 ID" }],
+    returns: [{ name: "messages", type: "object[]", desc: "MessageRecord 数组：{ idx, role, text, ts, raw }，按 idx 升序" }],
+    errors: [{ status: 404, message: "not found", recoverable: false }, ...UNAUTHORIZED],
+  },
+  {
+    method: "GET",
+    path: "/v1/sessions/:id/full",
+    summary: "获取单个会话全量详情（会话记录 + 全部消息）",
     params: [{ name: "id", in: "path", type: "string", required: true, desc: "会话 ID" }],
     returns: [{ name: "（响应体）", type: "object", desc: "SessionDetail：会话记录 + messages 数组" }],
+    errors: [{ status: 404, message: "not found", recoverable: false }, ...UNAUTHORIZED],
+  },
+  {
+    method: "GET",
+    path: "/v1/sessions/:id/full_length",
+    summary: "获取会话 full 响应体大小（字节数，不返回会话内容）",
+    params: [{ name: "id", in: "path", type: "string", required: true, desc: "会话 ID" }],
+    returns: [{ name: "full_length", type: "integer", desc: "/full 响应体 JSON 序列化后的 UTF-8 字节数" }],
     errors: [{ status: 404, message: "not found", recoverable: false }, ...UNAUTHORIZED],
   },
   {

@@ -92,6 +92,18 @@ function safeParseJson(text: string): unknown {
   }
 }
 
+type MessageRow = { idx: number; role: string; text: string; ts: number | null; raw: string | null };
+
+function mapMessageRows(rows: MessageRow[]): MessageRecord[] {
+  return rows.map((m) => ({
+    idx: m.idx,
+    role: m.role,
+    text: m.text,
+    ts: m.ts ?? null,
+    raw: m.raw === null ? null : safeParseJson(m.raw),
+  }));
+}
+
 export class SessionRepository {
   readonly #db: SqliteDatabase;
 
@@ -162,17 +174,24 @@ export class SessionRepository {
     if (!row) return null;
     const record = mapSessionRow(row);
     if (record.deleted_at !== null) return null;
-    const messageRows = this.#db
-      .prepare("SELECT idx, role, text, ts, raw FROM messages WHERE session_id = ? ORDER BY idx")
-      .all(id) as Array<{ idx: number; role: string; text: string; ts: number | null; raw: string | null }>;
-    const messages: MessageRecord[] = messageRows.map((m) => ({
-      idx: m.idx,
-      role: m.role,
-      text: m.text,
-      ts: m.ts ?? null,
-      raw: m.raw === null ? null : safeParseJson(m.raw),
-    }));
+    const messages = mapMessageRows(
+      this.#db
+        .prepare("SELECT idx, role, text, ts, raw FROM messages WHERE session_id = ? ORDER BY idx")
+        .all(id) as MessageRow[],
+    );
     return { ...record, messages };
+  }
+
+  getMessages(id: string): MessageRecord[] | null {
+    const row = this.#db.prepare("SELECT deleted_at FROM sessions WHERE id = ?").get(id) as
+      | { deleted_at: number | null }
+      | undefined;
+    if (!row || row.deleted_at !== null) return null;
+    return mapMessageRows(
+      this.#db
+        .prepare("SELECT idx, role, text, ts, raw FROM messages WHERE session_id = ? ORDER BY idx")
+        .all(id) as MessageRow[],
+    );
   }
 
   delete(id: string): boolean {

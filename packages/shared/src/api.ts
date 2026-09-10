@@ -1,7 +1,15 @@
-import type { SearchHit, SessionRecord } from "./session.js";
+import type { MessageRecord, SearchHit, SessionRecord } from "./session.js";
 
 export interface SessionListItem extends SessionRecord {
   message_count: number;
+}
+
+export interface SessionMessagesResponse {
+  messages: MessageRecord[];
+}
+
+export interface SessionFullLengthResponse {
+  full_length: number;
 }
 
 export interface SessionListResponse {

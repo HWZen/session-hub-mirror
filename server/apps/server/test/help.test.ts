@@ -31,6 +31,9 @@ describe("help L0", () => {
     expect(paths).toContain("PUT /v1/sessions");
     expect(paths).toContain("POST /v1/search");
     expect(paths).toContain("GET /v1/help");
+    expect(paths).toContain("GET /v1/sessions/:id");
+    expect(paths).toContain("GET /v1/sessions/:id/full");
+    expect(paths).toContain("GET /v1/sessions/:id/full_length");
     expect(data.hint).toContain("?help=1");
   });
 
@@ -79,6 +82,26 @@ describe("help L1 (?help=1)", () => {
     expect(doc.params[0]).toMatchObject({ name: "id", in: "path" });
   });
 
+  it("detail 拆分端点（/full、/full_length）可命中且不与 :id 误匹配", async () => {
+    const { app } = buildApp();
+    const fullRes = await request(app, "GET", "/v1/sessions/abc123/full?help=1");
+    expect(fullRes.status).toBe(200);
+    const fullDoc = (await fullRes.json()) as { path: string; summary: string };
+    expect(fullDoc.path).toBe("/v1/sessions/:id/full");
+    expect(fullDoc.summary).toContain("全量详情");
+
+    const lenRes = await request(app, "GET", "/v1/sessions/abc123/full_length?help=1");
+    expect(lenRes.status).toBe(200);
+    const lenDoc = (await lenRes.json()) as { path: string; returns: Array<{ name: string }> };
+    expect(lenDoc.path).toBe("/v1/sessions/:id/full_length");
+    expect(lenDoc.returns.map((r) => r.name)).toContain("full_length");
+
+    const baseRes = await request(app, "GET", "/v1/sessions/abc123?help=1");
+    const baseDoc = (await baseRes.json()) as { path: string; summary: string };
+    expect(baseDoc.path).toBe("/v1/sessions/:id");
+    expect(baseDoc.summary).toContain("仅 messages");
+  });
+
   it("未认证 ?help=1 仍返回 401", async () => {
     const { app } = buildApp();
     const res = await request(app, "PUT", "/v1/sessions?help=1", null);
@@ -107,6 +130,8 @@ describe("help 注册表一致性", () => {
 
   it("findEndpoint 支持 :id 模式与字面路径", () => {
     expect(findEndpoint("GET", "/v1/sessions/xyz")?.path).toBe("/v1/sessions/:id");
+    expect(findEndpoint("GET", "/v1/sessions/xyz/full")?.path).toBe("/v1/sessions/:id/full");
+    expect(findEndpoint("GET", "/v1/sessions/xyz/full_length")?.path).toBe("/v1/sessions/:id/full_length");
     expect(findEndpoint("GET", "/v1/sessions")?.path).toBe("/v1/sessions");
     expect(findEndpoint("GET", "/v1/sessions/")).toBeUndefined();
     expect(findEndpoint("PATCH", "/v1/sessions")).toBeUndefined();
