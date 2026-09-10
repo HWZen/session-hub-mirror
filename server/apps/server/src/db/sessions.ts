@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type {
+  ConversationMessage,
   MessageRecord,
   SessionDetail,
   SessionFilters,
@@ -104,6 +105,17 @@ function mapMessageRows(rows: MessageRow[]): MessageRecord[] {
   }));
 }
 
+type ConversationRow = { idx: number; role: string; text: string; ts: number | null };
+
+function mapConversationRows(rows: ConversationRow[]): ConversationMessage[] {
+  return rows.map((m) => ({
+    idx: m.idx,
+    role: m.role,
+    text: m.text,
+    ts: m.ts ?? null,
+  }));
+}
+
 export class SessionRepository {
   readonly #db: SqliteDatabase;
 
@@ -182,15 +194,15 @@ export class SessionRepository {
     return { ...record, messages };
   }
 
-  getMessages(id: string): MessageRecord[] | null {
+  getConversation(id: string): ConversationMessage[] | null {
     const row = this.#db.prepare("SELECT deleted_at FROM sessions WHERE id = ?").get(id) as
       | { deleted_at: number | null }
       | undefined;
     if (!row || row.deleted_at !== null) return null;
-    return mapMessageRows(
+    return mapConversationRows(
       this.#db
-        .prepare("SELECT idx, role, text, ts, raw FROM messages WHERE session_id = ? ORDER BY idx")
-        .all(id) as MessageRow[],
+        .prepare("SELECT idx, role, text, ts FROM messages WHERE session_id = ? ORDER BY idx")
+        .all(id) as ConversationRow[],
     );
   }
 

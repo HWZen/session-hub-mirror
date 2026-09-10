@@ -58,7 +58,7 @@ export function sessionRoutes(deps: SessionRouteDeps): Hono {
   });
 
   app.get("/:id", (c) => {
-    const messages = deps.repo.getMessages(c.req.param("id"));
+    const messages = deps.repo.getConversation(c.req.param("id"));
     if (!messages) return c.json({ error: "not found" }, 404);
     return c.json({ messages });
   });

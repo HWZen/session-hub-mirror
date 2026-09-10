@@ -268,16 +268,17 @@ describe("session detail split (0.13.0)", () => {
     return ((await res.json()) as { id: string }).id;
   }
 
-  it("GET /:id 只返回 messages，不含任何元数据字段", async () => {
+  it("GET /:id 只返回对话消息（idx/role/text/ts），不含元数据与 raw", async () => {
     const { app } = buildApp();
     const id = await seedSession(app);
     const res = await app.request(`/v1/sessions/${id}`, AUTH);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { messages: Array<{ idx: number; role: string; text: string; raw: unknown }> };
+    const body = (await res.json()) as { messages: Array<Record<string, unknown>> };
     expect(Object.keys(body)).toEqual(["messages"]);
     expect(body.messages).toHaveLength(2);
+    expect(Object.keys(body.messages[0]!)).toEqual(["idx", "role", "text", "ts"]);
     expect(body.messages[0]!.text).toBe("hello 世界");
-    expect(body.messages[1]!.raw).toEqual({ foo: 1 });
+    expect(body.messages[1]!.raw).toBeUndefined();
   });
 
   it("GET /:id/full 返回完整 SessionDetail", async () => {

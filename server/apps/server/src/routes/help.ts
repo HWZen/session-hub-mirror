@@ -155,15 +155,17 @@ export const endpoints: EndpointHelp[] = [
   {
     method: "GET",
     path: "/v1/sessions/:id",
-    summary: "获取会话对话消息（仅 messages，不含会话元数据）",
+    summary: "获取会话对话消息（仅 idx/role/text/ts，不含会话元数据与消息 raw）",
     params: [{ name: "id", in: "path", type: "string", required: true, desc: "会话 ID" }],
-    returns: [{ name: "messages", type: "object[]", desc: "MessageRecord 数组：{ idx, role, text, ts, raw }，按 idx 升序" }],
+    returns: [
+      { name: "messages", type: "object[]", desc: "对话消息数组：{ idx, role, text, ts }，按 idx 升序；不含 raw，raw 只在 /full 返回" },
+    ],
     errors: [{ status: 404, message: "not found", recoverable: false }, ...UNAUTHORIZED],
   },
   {
     method: "GET",
     path: "/v1/sessions/:id/full",
-    summary: "获取单个会话全量详情（会话记录 + 全部消息）",
+    summary: "获取单个会话全量详情（会话记录 + 全部消息含 raw）",
     params: [{ name: "id", in: "path", type: "string", required: true, desc: "会话 ID" }],
     returns: [{ name: "（响应体）", type: "object", desc: "SessionDetail：会话记录 + messages 数组" }],
     errors: [{ status: 404, message: "not found", recoverable: false }, ...UNAUTHORIZED],

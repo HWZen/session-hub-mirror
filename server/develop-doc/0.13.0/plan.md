@@ -4,8 +4,8 @@
 
 拆分 `GET /v1/sessions/:id` 的返回内容：
 
-- `GET /v1/sessions/:id`：**只返回对话信息**（messages 数组），不再带会话元数据全集
-- 新增 `GET /v1/sessions/:id/full`：返回全部信息（即 0.12.0 的 SessionDetail：会话记录 + messages）
+- `GET /v1/sessions/:id`：**只返回对话信息**（messages 数组，仅 `idx/role/text/ts`，不含会话元数据与消息 `raw`）
+- 新增 `GET /v1/sessions/:id/full`：返回全部信息（即 0.12.0 的 SessionDetail：会话记录 + messages 含 raw）
 - 新增 `GET /v1/sessions/:id/full_length`：返回该会话 full 内容的大小（字节）
 
 ## 现状（侦察结论，2026-09-10）
@@ -22,23 +22,24 @@
 ## 方案
 
 ### 1. `packages/shared/src/api.ts`
-- 新增 `SessionMessagesResponse { messages: MessageRecord[] }`
+- `packages/shared/src/session.ts` 新增 `ConversationMessage { idx, role, text, ts }`；`MessageRecord` 改为 extends 它再加 `raw`
+- 新增 `SessionMessagesResponse { messages: ConversationMessage[] }`
 - 新增 `SessionFullLengthResponse { full_length: number }`（单位：字节）
 - /full 响应类型复用既有 `SessionDetail`（session.ts），不新建别名
 
 ### 2. `server/apps/server/src/db/sessions.ts`
-- 新增 `getMessages(id): MessageRecord[] | null`：先 `SELECT deleted_at FROM sessions WHERE id = ?` 做存在性 + 软删除校验（null = 不存在或已删除），再只查 messages 表按 idx 排序，复用 get() 内现有的 raw 解析逻辑（抽小函数或直接复制同款映射）
+- 新增 `getConversation(id): ConversationMessage[] | null`：先 `SELECT deleted_at FROM sessions WHERE id = ?` 做存在性 + 软删除校验（null = 不存在或已删除），再只查 `idx, role, text, ts`（**不取 raw**）按 idx 排序
 - `get()` 保持不变，供 /full 与 full_length 使用
 
 ### 3. `server/apps/server/src/routes/sessions.ts`
-- `GET /:id` → `repo.getMessages(id)`；null → 404；否则 200 `{ messages }`
+- `GET /:id` → `repo.getConversation(id)`；null → 404；否则 200 `{ messages }`（每项仅 idx/role/text/ts）
 - `GET /:id/full` → `repo.get(id)`（原逻辑原样迁移）；null → 404
 - `GET /:id/full_length` → `repo.get(id)`；null → 404；否则 `{ full_length: Buffer.byteLength(JSON.stringify(detail)) }`
   - 口径：**等于 /full 响应体序列化后的字节数**（UTF-8），非 DB 存储字节；实现简单且与 /full 严格一致
   - 大会话会整体序列化一次，可接受（消息上限 5000 条/会话）
 
 ### 4. `server/apps/server/src/routes/help.ts`
-- `GET /v1/sessions/:id`：summary 改为"获取会话对话消息（仅 messages，不含元数据）"，returns 更新
+- `GET /v1/sessions/:id`：summary 改为"获取会话对话消息（仅 idx/role/text/ts，不含元数据与 raw）"，returns 更新
 - 新增两条：`GET /v1/sessions/:id/full`（全量详情）、`GET /v1/sessions/:id/full_length`（full 响应体字节数）
 
 ### 5. Web `server/apps/web/src/lib/api.ts`
@@ -50,13 +51,13 @@
 
 ### 明确出界
 - 不动 PUT / DELETE、列表、搜索/grep；不改 DB schema；不加新 DB 连接点
-- /v1/sessions/:id 不带任何元数据字段（含 id）——严格按"只返回对话信息"
+- /v1/sessions/:id 不带任何元数据字段（含 id），也不带消息 raw——严格按"只返回对话信息"
 
 ## 涉及文件
 
 - 根 `plan.md`（§7 API 表）
 - `server/package.json`：version 0.12.0 → 0.13.0（已完成）
-- `packages/shared/src/api.ts`
+- `packages/shared/src/session.ts`、`api.ts`
 - `server/apps/server/src/db/sessions.ts`、`routes/sessions.ts`、`routes/help.ts`
 - `server/apps/web/src/lib/api.ts`
 - `skills/session-hub/SKILL.md`
@@ -65,8 +66,8 @@
 
 ## 任务清单
 
-1. shared：两个响应类型
-2. repo：`getMessages(id)`
+1. shared：`ConversationMessage` + 两个响应类型
+2. repo：`getConversation(id)`（不取 raw）
 3. routes/sessions.ts：三路由改造/新增
 4. help.ts：三条端点元数据
 5. Web：`api.ts` getSession → /full
@@ -76,8 +77,8 @@
 
 ## 验收标准
 
-- `GET /v1/sessions/:id` 返回 `{ messages: [...] }`，响应体不含 id/agent/machine 等任何元数据字段
-- `GET /v1/sessions/:id/full` 返回完整 SessionDetail，与 0.12.0 的 `GET /v1/sessions/:id` 行为一致
+- `GET /v1/sessions/:id` 返回 `{ messages: [{ idx, role, text, ts }] }`：不含 id/agent/machine 等元数据字段，也不含消息 `raw`；响应体显著小于 /full
+- `GET /v1/sessions/:id/full` 返回完整 SessionDetail（含消息 raw），与 0.12.0 的 `GET /v1/sessions/:id` 行为一致
 - `GET /v1/sessions/:id/full_length` 返回 `{ full_length: N }`，N 为对应 /full 响应体 UTF-8 字节数（测试里用 `Buffer.byteLength(JSON.stringify(full))` 断言相等）
 - 不存在或已软删除的会话：三个接口均 404
 - `?help=1` 能发现三个端点且文档准确
