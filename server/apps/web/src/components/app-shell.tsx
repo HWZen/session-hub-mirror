@@ -69,9 +69,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       >
         <div className="flex h-12 shrink-0 items-center gap-2 border-b border-sidebar-border/70 px-2">
           <Link to="/" className={cn("flex min-w-0 flex-1 items-center gap-2", collapsed && "max-md:flex md:justify-center")}>
-            <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-              <BoxesIcon className="size-4" />
-            </div>
+            <img src="/icon.svg" alt="Session Hub" className="size-7 shrink-0 rounded-lg" />
             <span className={cn("truncate text-sm font-semibold tracking-tight", collapsed && "max-md:hidden md:hidden")}>
               Session Hub
             </span>

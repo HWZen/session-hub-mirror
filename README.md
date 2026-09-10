@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/icon.svg" alt="Session Hub" width="120" height="120" />
+</p>
+
 # Session Hub
 
 跨端跨 Agent 的个人会话档案库 + 检索层。只做"存得全、找得到"，零加工。
