@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 校验 tag 与 server/package.json 版本一致
+        run: |
+          PKG_VERSION="v$(node -p "require('./server/package.json').version")"
+          if [ "$PKG_VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME 与 server/package.json 版本 $PKG_VERSION 不一致"
+            exit 1
+          fi
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 测试
+        run: npm test
+
+      - name: 构建
+        run: npm run build
+
+      - name: 组装发布产物
+        run: |
+          mkdir -p artifact/packages/shared artifact/server/apps/server artifact/server/apps/web
+          cp package.json package-lock.json artifact/
+          cp packages/shared/package.json artifact/packages/shared/
+          cp -r packages/shared/dist artifact/packages/shared/dist
+          cp server/package.json artifact/server/
+          cp server/apps/server/package.json artifact/server/apps/server/
+          cp -r server/apps/server/dist artifact/server/apps/server/dist
+          cp -r server/apps/web/dist artifact/server/apps/web/dist
+          cd artifact
+          zip -qr "../session-hub-${GITHUB_REF_NAME}.zip" .
+
+      - name: 创建 Release 并上传产物
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "session-hub-${GITHUB_REF_NAME}.zip" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes
