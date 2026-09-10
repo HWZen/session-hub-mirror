@@ -189,8 +189,10 @@ GET /v1/grep?q=E_ROLLBACK&agent=opencode&limit=20
 
 ```text
 GET /v1/sessions?agent=opencode&limit=20&offset=0
-GET /v1/sessions/:id        # 详情，含全部消息
-DELETE /v1/sessions/:id     # 软删除
+GET /v1/sessions/:id             # 对话消息（idx/role/text/ts，不含元数据与 raw）
+GET /v1/sessions/:id/full        # 全量详情（会话记录 + 全部消息含 raw）
+GET /v1/sessions/:id/full_length # full 响应体字节数
+DELETE /v1/sessions/:id          # 软删除
 ```
 
 ### 场景：统计与补索引

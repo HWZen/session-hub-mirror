@@ -144,7 +144,7 @@ export const api = {
     return request(`/v1/sessions${buildQuery(params)}`);
   },
   getSession(id: string): Promise<SessionDetail> {
-    return request(`/v1/sessions/${encodeURIComponent(id)}`);
+    return request(`/v1/sessions/${encodeURIComponent(id)}/full`);
   },
   deleteSession(id: string): Promise<{ ok: boolean }> {
     return request(`/v1/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });

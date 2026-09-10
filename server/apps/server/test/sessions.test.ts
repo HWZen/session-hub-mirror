@@ -55,7 +55,7 @@ describe("sessions CRUD", () => {
     expect(list.items[0]!.title).toBe("renamed");
     expect(list.items[0]!.message_count).toBe(3);
 
-    const detailRes = await app.request(`/v1/sessions/${body1.id}`, AUTH);
+    const detailRes = await app.request(`/v1/sessions/${body1.id}/full`, AUTH);
     expect(detailRes.status).toBe(200);
     const detail = (await detailRes.json()) as {
       id: string;
@@ -71,8 +71,9 @@ describe("sessions CRUD", () => {
 
   it("returns 404 for unknown detail", async () => {
     const { app } = buildApp();
-    const res = await app.request("/v1/sessions/nope", AUTH);
-    expect(res.status).toBe(404);
+    for (const path of ["/v1/sessions/nope", "/v1/sessions/nope/full", "/v1/sessions/nope/full_length"]) {
+      expect((await app.request(path, AUTH)).status).toBe(404);
+    }
   });
 
   it("soft deletes and hides from list and detail", async () => {
@@ -190,7 +191,7 @@ describe("sessions CRUD", () => {
     release!();
     await settleIndexing();
     expect(repo.listUnindexed(10, "bge-m3")).toHaveLength(0);
-    const detail = (await (await app.request(`/v1/sessions/${(await getList(app)).items[0]!.id}`, AUTH)).json()) as {
+    const detail = (await (await app.request(`/v1/sessions/${(await getList(app)).items[0]!.id}/full`, AUTH)).json()) as {
       indexed_model: string | null;
     };
     expect(detail.indexed_model).toBe("bge-m3");
@@ -246,5 +247,86 @@ describe("sessions CRUD", () => {
     const indexer = new SessionIndexer(db, repo, registry2);
     expect(await indexer.indexSession(id)).toBe(true);
     expect(repo.listUnindexed(100, registry2.activeModel())).toHaveLength(0);
+  });
+});
+
+describe("session detail split (0.13.0)", () => {
+  const AUTH = { headers: { authorization: `Bearer ${TEST_TOKEN}` } };
+
+  async function seedSession(app: ReturnType<typeof buildApp>["app"]): Promise<string> {
+    const res = await putSession(
+      app,
+      sessionBody({
+        title: "拆分接口",
+        messages: [
+          { role: "user", text: "hello 世界", ts: 1 },
+          { role: "assistant", text: "world", ts: 2, raw: { foo: 1 } },
+        ],
+      }),
+    );
+    expect(res.status).toBe(201);
+    return ((await res.json()) as { id: string }).id;
+  }
+
+  it("GET /:id 只返回对话消息（idx/role/text/ts），不含元数据与 raw", async () => {
+    const { app } = buildApp();
+    const id = await seedSession(app);
+    const res = await app.request(`/v1/sessions/${id}`, AUTH);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { messages: Array<Record<string, unknown>> };
+    expect(Object.keys(body)).toEqual(["messages"]);
+    expect(body.messages).toHaveLength(2);
+    expect(Object.keys(body.messages[0]!)).toEqual(["idx", "role", "text", "ts"]);
+    expect(body.messages[0]!.text).toBe("hello 世界");
+    expect(body.messages[1]!.raw).toBeUndefined();
+  });
+
+  it("GET /:id/full 返回完整 SessionDetail", async () => {
+    const { app } = buildApp();
+    const id = await seedSession(app);
+    const res = await app.request(`/v1/sessions/${id}/full`, AUTH);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      id: string;
+      agent: string;
+      machine: string;
+      source_id: string;
+      title: string | null;
+      messages: Array<{ text: string }>;
+    };
+    expect(body.id).toBe(id);
+    expect(body.agent).toBe("opencode");
+    expect(body.machine).toBeTruthy();
+    expect(body.source_id).toBeTruthy();
+    expect(body.title).toBe("拆分接口");
+    expect(body.messages).toHaveLength(2);
+  });
+
+  it("GET /:id/full_length 等于 /full 响应体的 UTF-8 字节数", async () => {
+    const { app } = buildApp();
+    const id = await seedSession(app);
+    const fullRes = await app.request(`/v1/sessions/${id}/full`, AUTH);
+    expect(fullRes.status).toBe(200);
+    const full = await fullRes.json();
+    const lenRes = await app.request(`/v1/sessions/${id}/full_length`, AUTH);
+    expect(lenRes.status).toBe(200);
+    const { full_length } = (await lenRes.json()) as { full_length: number };
+    expect(full_length).toBe(Buffer.byteLength(JSON.stringify(full)));
+    expect(full_length).toBeGreaterThan(0);
+  });
+
+  it("三个接口对不存在与已软删除会话均返回 404", async () => {
+    const { app } = buildApp();
+    const id = await seedSession(app);
+    const del = await app.request(`/v1/sessions/${id}`, { method: "DELETE", ...AUTH });
+    expect(del.status).toBe(200);
+    const deletedPaths = [`/v1/sessions/${id}`, `/v1/sessions/${id}/full`, `/v1/sessions/${id}/full_length`];
+    for (const path of deletedPaths) {
+      expect((await app.request(path, AUTH)).status).toBe(404);
+    }
+    const missingPaths = ["/v1/sessions/nope", "/v1/sessions/nope/full", "/v1/sessions/nope/full_length"];
+    for (const path of missingPaths) {
+      expect((await app.request(path, AUTH)).status).toBe(404);
+    }
   });
 });

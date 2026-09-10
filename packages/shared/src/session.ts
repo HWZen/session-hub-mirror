@@ -76,11 +76,14 @@ export interface SessionRecord {
   indexed_model: string | null;
 }
 
-export interface MessageRecord {
+export interface ConversationMessage {
   idx: number;
   role: string;
   text: string;
   ts: number | null;
+}
+
+export interface MessageRecord extends ConversationMessage {
   raw: unknown;
 }
 

@@ -58,9 +58,21 @@ export function sessionRoutes(deps: SessionRouteDeps): Hono {
   });
 
   app.get("/:id", (c) => {
+    const messages = deps.repo.getConversation(c.req.param("id"));
+    if (!messages) return c.json({ error: "not found" }, 404);
+    return c.json({ messages });
+  });
+
+  app.get("/:id/full", (c) => {
     const detail = deps.repo.get(c.req.param("id"));
     if (!detail) return c.json({ error: "not found" }, 404);
     return c.json(detail);
+  });
+
+  app.get("/:id/full_length", (c) => {
+    const detail = deps.repo.get(c.req.param("id"));
+    if (!detail) return c.json({ error: "not found" }, 404);
+    return c.json({ full_length: Buffer.byteLength(JSON.stringify(detail)) });
   });
 
   app.delete("/:id", (c) => {

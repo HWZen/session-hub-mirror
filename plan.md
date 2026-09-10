@@ -120,7 +120,9 @@ messages / parts                -- 全量原文（JSON 存储或子表，实施�
 |---|---|
 | `PUT /v1/sessions` | upsert（幂等键 agent+machine+source_id） |
 | `GET /v1/sessions` | 列表；过滤：`agent` `machine` `created_from/to` `updated_from/to`、分页 |
-| `GET /v1/sessions/:id` | 全量详情（含消息 + 工具产出原文） |
+| `GET /v1/sessions/:id` | 对话消息（仅 idx/role/text/ts，不含元数据与消息 raw；2026-09-10 拆分） |
+| `GET /v1/sessions/:id/full` | 全量详情（会话记录 + 消息 + 工具产出原文 raw） |
+| `GET /v1/sessions/:id/full_length` | full 响应体字节数（UTF-8） |
 | `DELETE /v1/sessions/:id` | 删除 |
 | `POST /v1/search` | `{query, top_k, filters?}` → 命中会话 + 片段（对话索引） |
 | `GET /v1/grep` | 关键词子串检索（2026-09-06 增）：`?q=` + 过滤参数同 sessions + `case_sensitive` → 命中消息按会话分组 + 片段 |
