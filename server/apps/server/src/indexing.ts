@@ -5,6 +5,7 @@ import type { MessageSourceRow, SessionRepository } from "./db/sessions.js";
 import type { EmbeddingRegistry } from "./embedding/registry.js";
 import { chunkText } from "./indexing/chunk.js";
 import { extractReasoning } from "./indexing/raw-extract.js";
+import { buildSessionMetaHeader } from "./indexing/session-meta.js";
 
 interface PendingChunk {
   messageId: number;
@@ -60,7 +61,11 @@ export class SessionIndexer {
         this.repo.setIndexed(sessionId, activeModel);
         return true;
       }
-      const { vectors, provider, model } = await this.registry.embed(pending.map((chunk) => chunk.text));
+      const meta = this.repo.findById(sessionId);
+      const header = meta === null ? "" : buildSessionMetaHeader(meta);
+      const { vectors, provider, model } = await this.registry.embed(
+        pending.map((chunk, i) => (i === 0 && header !== "" ? `${header}\n${chunk.text}` : chunk.text)),
+      );
       storeChunks(
         this.db,
         sessionId,

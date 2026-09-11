@@ -12,6 +12,9 @@
 - 切片表：`message_chunks(id, message_id, chunk_no, source, text, char_start)`，`message_id` **NOT NULL** 且 FK 指向 messages；向量表 `chunk_embeddings_<模型>(chunk_id PK, embedding)`。
 - 检索：`search.ts` 查 `chunk_embeddings_<模型>` → `JOIN message_chunks` → `messages` → `sessions`；命中后会话元数据随 `session` 对象一并返回。
 - `char_start` 记录切片在消息正文中的偏移；经检索路径确认**运行期未被消费**（仅存储）。
+- `db/chunks.ts` 已有 `listChunkEmbeddingTables`（枚举 `chunk_embeddings_%` 虚表）与 `storeChunks`（事务内先 `clearSessionChunks` 再逐行插入），0005 删表可直接复用；`collectChunks` 有跨消息文本去重（`seen` 集合），`pending[0]` 即去重后的会话首个切片。
+- 切片参数：`DEFAULT_CHUNK_MAX_CHARS = 1200`（`chunk.ts`）；header 拼接进首切片 embedding 输入后仍远小于 bge-m3 8K 上下文，无截断风险。
+- `upsert` 已在事务内 `clearSessionChunks` + 重置 `indexed_at/indexed_model`，已索引会话被更新后走同一 `indexSession` 重建，本版无需改 upsert 路径。
 - 重建触发：`listUnindexed` 口径 `indexed_at IS NULL OR indexed_model != 活跃模型`；0.15.0 迁移 `0004` 通过重置 flags + 删 `message_embeddings%` 触发全量重建。
 - 仓库现有 0.15.0 切片索引已提交（分支 `0.15.0-server-0.2.0-collector-dev` 的 `a4446b9`/`548341c`），本版**基于切片索引**开发。
 
@@ -35,7 +38,7 @@
 
 ### 2. `src/db/sessions.ts`
 
-- 新增轻量 `findById(id: string): SessionRecord | null`（`SELECT ${SESSION_COLUMNS} WHERE id = ?`），供索引器取元数据，**不加载 messages**（`get()` 会加载全量消息，不用）。
+- 新增轻量 `findById(id: string): SessionRecord | null`（`SELECT ${SESSION_COLUMNS} WHERE id = ?`），供索引器取元数据，**不加载 messages**（`get()` 会加载全量消息，不用）。不按 `deleted_at` 过滤（索引入口 `listUnindexed` 只产出未删除会话，防御性取到已删会话也只是多索引一次，无害）。
 
 ### 3. `src/indexing.ts`
 
@@ -53,7 +56,7 @@
 元数据进入 embedding 后，旧向量空间内容已变，需全量重建：
 
 1. `DELETE FROM message_chunks`（清旧切片行）。
-2. 删除所有 `chunk_embeddings_%` vec0 虚表（含影子表兜底，参照 0004 `dropMessageEmbeddingsTables` 写法）。
+2. 复用 `listChunkEmbeddingTables` 枚举并逐个 `DROP` 所有 `chunk_embeddings_%` vec0 虚表，再按 `chunk_embeddings_%` LIKE 兜底清残余影子表（参照 0004 `dropMessageEmbeddingsTables` 的两段式写法）。
 3. `UPDATE sessions SET indexed_at = NULL, indexed_model = NULL`（关键：否则 `listUnindexed` 不认为需重建）。
 
 重建仍由既有 auto-indexer / `npm run reindex` 入口自动完成，无需清库文件。

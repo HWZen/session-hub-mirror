@@ -57,7 +57,8 @@ describe("semantic search", () => {
     const parts = buildApp();
     await seed(parts);
     const { app } = parts;
-    const res = await postSearch(app, { query: NEEDLE, top_k: 5 });
+    const firstChunkEmbedInput = `会话元数据：标题=nodejs debug；Agent=opencode；机器=M1；源会话ID=sA\n${NEEDLE}`;
+    const res = await postSearch(app, { query: firstChunkEmbedInput, top_k: 5 });
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       provider: string;
@@ -93,6 +94,29 @@ describe("semantic search", () => {
     expect(body.results[0]!.session.source_id).toBe("sR");
     expect(body.results[0]!.snippets[0]!.text).toBe(REASONING);
     expect(body.results[0]!.snippets[0]!.source).toBe("reasoning");
+  });
+
+  it("matches a session through its meta header prepended to the first chunk", async () => {
+    const parts = buildApp();
+    const { app, settleIndexing } = parts;
+    await putSession(app, {
+      ...opencodeBody("sMeta"),
+      title: "vector metadata",
+      machine: "M1",
+      messages: [{ role: "user", text: NEEDLE, ts: 1 }],
+    });
+    await settleIndexing();
+
+    const header = "会话元数据：标题=vector metadata；Agent=opencode；机器=M1；源会话ID=sMeta";
+    const res = await postSearch(app, { query: `${header}\n${NEEDLE}`, top_k: 5 });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      results: Array<{ session: { source_id: string }; distance: number; snippets: Array<{ text: string }> }>;
+    };
+    expect(body.results).toHaveLength(1);
+    expect(body.results[0]!.session.source_id).toBe("sMeta");
+    expect(body.results[0]!.distance).toBeLessThan(0.01);
+    expect(body.results[0]!.snippets[0]!.text).toBe(NEEDLE);
   });
 
   it("applies filters to search results", async () => {

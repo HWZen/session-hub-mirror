@@ -1,5 +1,6 @@
 import type { SqliteDatabase } from "./connection.js";
 import { listEmbeddingTables } from "./embeddings.js";
+import { listChunkEmbeddingTables } from "./chunks.js";
 
 const MIGRATION_0001_SQL = `
   CREATE TABLE IF NOT EXISTS sessions (
@@ -110,6 +111,14 @@ function dropMessageEmbeddingsTables(db: SqliteDatabase): void {
   for (const { name } of leftovers) db.exec(`DROP TABLE IF EXISTS "${name}"`);
 }
 
+function dropChunkEmbeddingsTables(db: SqliteDatabase): void {
+  for (const name of listChunkEmbeddingTables(db)) db.exec(`DROP TABLE IF EXISTS "${name}"`);
+  const leftovers = db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'chunk_embeddings_%'")
+    .all() as Array<{ name: string }>;
+  for (const { name } of leftovers) db.exec(`DROP TABLE IF EXISTS "${name}"`);
+}
+
 function repairRenamedVec0Table(db: SqliteDatabase): void {
   const targetShadowInfo = `${BGE_M3_TABLE}_info`;
   const legacyShadowInfo = `${LEGACY_EMBEDDINGS_TABLE}_info`;
@@ -149,6 +158,14 @@ const MIGRATIONS: ReadonlyArray<{ name: string; up: (db: SqliteDatabase) => void
     up: (db) => {
       dropMessageEmbeddingsTables(db);
       db.exec(MIGRATION_0004_SQL);
+      db.exec("UPDATE sessions SET indexed_at = NULL, indexed_model = NULL");
+    },
+  },
+  {
+    name: "0005_session_meta_chunk",
+    up: (db) => {
+      db.exec("DELETE FROM message_chunks");
+      dropChunkEmbeddingsTables(db);
       db.exec("UPDATE sessions SET indexed_at = NULL, indexed_model = NULL");
     },
   },

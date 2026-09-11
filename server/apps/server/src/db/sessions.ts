@@ -203,6 +203,14 @@ export class SessionRepository {
     return { ...record, messages };
   }
 
+  findById(id: string): SessionRecord | null {
+    const row = this.#db.prepare(`SELECT ${SESSION_COLUMNS} FROM sessions WHERE id = ?`).get(id) as
+      | Record<string, unknown>
+      | undefined;
+    if (!row) return null;
+    return mapSessionRow(row);
+  }
+
   getConversation(id: string): ConversationMessage[] | null {
     const row = this.#db.prepare("SELECT deleted_at FROM sessions WHERE id = ?").get(id) as
       | { deleted_at: number | null }
