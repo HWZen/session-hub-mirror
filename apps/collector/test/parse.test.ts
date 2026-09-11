@@ -84,7 +84,7 @@ describe("parseTranscript", () => {
     const rawParts = payload!.messages[1]!.raw;
     expect(Array.isArray(rawParts)).toBe(true);
     expect(rawParts).toContainEqual({ type: "tool_use", name: "read" });
-    expect(stats).toEqual({ lines: 3, parseErrors: 0, kept: 3, dropped: 0 });
+    expect(stats).toEqual({ lines: 3, parseErrors: 0, kept: 3, dropped: 0, reasoning: 0, reasoningSkipped: 0 });
   });
 
   it("derives source_id from transcript basename when session_id missing", () => {
@@ -108,7 +108,7 @@ describe("parseTranscript", () => {
       userLine("ok", 5000),
     ].join("\n");
     const { payload, stats } = parseTranscript(jsonl, source);
-    expect(stats).toEqual({ lines: 3, parseErrors: 1, kept: 1, dropped: 1 });
+    expect(stats).toEqual({ lines: 3, parseErrors: 1, kept: 1, dropped: 1, reasoning: 0, reasoningSkipped: 0 });
     expect(payload!.created_at).toBe(5000);
   });
 
@@ -187,7 +187,7 @@ describe("parseTranscript", () => {
       }),
     ].join("\n");
     const { payload, stats } = parseTranscript(jsonl, { sessionId: "ses_flat", machine: "M1" });
-    expect(stats).toEqual({ lines: 3, parseErrors: 0, kept: 2, dropped: 1 });
+    expect(stats).toEqual({ lines: 3, parseErrors: 0, kept: 2, dropped: 1, reasoning: 0, reasoningSkipped: 0 });
     expect(payload!.created_at).toBe(1788849058324);
     expect(payload!.updated_at).toBe(1788849093734);
     expect(payload!.title).toBe("do it");
@@ -203,5 +203,119 @@ describe("parseTranscript", () => {
     const { payload, stats } = parseTranscript(jsonl, source);
     expect(payload!.title).toBe("会议要点");
     expect(stats.dropped).toBe(1);
+  });
+});
+
+describe("parseTranscript reasoning", () => {
+  function reasoningLine(extra: Record<string, unknown>, ts = 1500): string {
+    return JSON.stringify({ id: "r1", timestamp: ts, type: "reasoning", ...extra });
+  }
+
+  it("extracts real-workbuddy rawContent reasoning_text and attributes to next assistant message", () => {
+    const jsonl = [
+      reasoningLine({ content: [], rawContent: [{ type: "reasoning_text", text: "先分析问题" }] }),
+      JSON.stringify({
+        id: "a1",
+        timestamp: 2000,
+        type: "message",
+        role: "assistant",
+        status: "completed",
+        content: [{ type: "output_text", text: "done" }],
+      }),
+    ].join("\n");
+    const { payload, stats } = parseTranscript(jsonl, { sessionId: "ses_r", machine: "M1" });
+    expect(stats).toEqual({ lines: 2, parseErrors: 0, kept: 1, dropped: 0, reasoning: 1, reasoningSkipped: 0 });
+    expect(payload!.messages).toHaveLength(1);
+    expect(payload!.messages[0]).toMatchObject({ role: "assistant", text: "done", ts: 2000 });
+    expect(payload!.messages[0]!.raw).toEqual([
+      { type: "reasoning", text: "先分析问题" },
+      { type: "output_text", text: "done" },
+    ]);
+  });
+
+  it("extracts summary parts", () => {
+    const jsonl = [
+      reasoningLine({
+        summary: [
+          { type: "summary_text", text: "s1" },
+          { type: "summary_text", text: "s2" },
+        ],
+      }),
+      assistantLine([{ type: "text", text: "ok" }], 2000),
+    ].join("\n");
+    const { payload, stats } = parseTranscript(jsonl, source);
+    expect(stats.reasoning).toBe(1);
+    const raw = payload!.messages[0]!.raw as unknown[];
+    expect(raw[0]).toEqual({ type: "reasoning", text: "s1\n\ns2" });
+  });
+
+  it("extracts bare content-array, top-level text and thinking forms", () => {
+    for (const extra of [
+      { content: [{ type: "reasoning_text", text: "c-text" }] },
+      { text: "top-text" },
+      { thinking: "thinking-field" },
+    ]) {
+      const jsonl = [reasoningLine(extra), assistantLine([{ type: "text", text: "ok" }], 2000)].join("\n");
+      const { payload } = parseTranscript(jsonl, source);
+      const raw = payload!.messages[0]!.raw as unknown[];
+      const part = raw.find((p) => (p as { type: string }).type === "reasoning") as { text: string };
+      expect(part.text).toBe(extra["content"] ? "c-text" : extra["text"] ? "top-text" : "thinking-field");
+    }
+  });
+
+  it("skips encrypted-only reasoning without producing empty parts", () => {
+    const jsonl = [
+      reasoningLine({ content: [], rawContent: [{ type: "encrypted_content", data: "Zm9v" }] }, 1500),
+      assistantLine([{ type: "text", text: "ok" }], 2000),
+    ].join("\n");
+    const { payload, stats } = parseTranscript(jsonl, source);
+    expect(stats).toEqual({ lines: 2, parseErrors: 0, kept: 1, dropped: 0, reasoning: 0, reasoningSkipped: 1 });
+    expect(payload!.messages).toHaveLength(1);
+    expect(payload!.messages[0]!.raw).toMatchObject({ type: "text", text: "ok" });
+  });
+
+  it("buffers multiple reasoning lines in order onto one assistant message", () => {
+    const jsonl = [
+      reasoningLine({ rawContent: [{ type: "reasoning_text", text: "r1" }] }, 1400),
+      reasoningLine({ rawContent: [{ type: "reasoning_text", text: "r2" }] }, 1500),
+      assistantLine([{ type: "text", text: "ok" }], 2000),
+    ].join("\n");
+    const { payload, stats } = parseTranscript(jsonl, source);
+    expect(stats.reasoning).toBe(2);
+    const raw = payload!.messages[0]!.raw as unknown[];
+    expect(raw).toEqual([
+      { type: "reasoning", text: "r1" },
+      { type: "reasoning", text: "r2" },
+      { type: "text", text: "ok" },
+    ]);
+  });
+
+  it("flushes trailing buffered reasoning as assistant-only message", () => {
+    const jsonl = [
+      userLine("q", 1000),
+      reasoningLine({ rawContent: [{ type: "reasoning_text", text: "tail" }] }, 1800),
+    ].join("\n");
+    const { payload, stats } = parseTranscript(jsonl, source);
+    expect(stats).toEqual({ lines: 2, parseErrors: 0, kept: 2, dropped: 0, reasoning: 1, reasoningSkipped: 0 });
+    expect(payload!.messages).toHaveLength(2);
+    expect(payload!.messages[1]).toMatchObject({ role: "assistant", ts: 1800 });
+    expect(payload!.messages[1]!.text).toBeUndefined();
+    expect(payload!.messages[1]!.raw).toEqual([{ type: "reasoning", text: "tail" }]);
+    expect(payload!.updated_at).toBe(1800);
+  });
+
+  it("attributes to the next assistant message even across other lines", () => {
+    const jsonl = [
+      reasoningLine({ rawContent: [{ type: "reasoning_text", text: "early" }] }, 1400),
+      JSON.stringify({ id: "f1", timestamp: 1500, type: "function_call", name: "read" }),
+      assistantLine([{ type: "output_text", text: "later" }], 2000),
+    ].join("\n");
+    const { payload, stats } = parseTranscript(jsonl, source);
+    expect(stats.dropped).toBe(1);
+    const raw = payload!.messages[0]!.raw as unknown[];
+    expect(raw).toEqual([
+      { type: "reasoning", text: "early" },
+      { type: "output_text", text: "later" },
+    ]);
   });
 });
