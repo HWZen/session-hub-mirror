@@ -21,6 +21,8 @@ export interface ParseStats {
   parseErrors: number;
   kept: number;
   dropped: number;
+  reasoning: number;
+  reasoningSkipped: number;
 }
 
 export interface ParseResult {
@@ -31,6 +33,8 @@ export interface ParseResult {
 interface ParsedLine {
   ts: number | null;
   role: string | null;
+  type: string | null;
+  reasoningText: string | null;
   content: unknown;
   message: unknown;
   aiTitle: string | null;
@@ -67,6 +71,63 @@ export function extractUserText(text: string): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+const TEXT_PART_TYPES = new Set(["text", "input_text", "output_text"]);
+
+function joinTextParts(parts: unknown[]): { text: string | null; raw: unknown } {
+  const pieces: string[] = [];
+  for (const part of parts) {
+    const p = asRecord(part);
+    if (!p) continue;
+    if (!TEXT_PART_TYPES.has(typeof p["type"] === "string" ? p["type"] : "") || typeof p["text"] !== "string") {
+      continue;
+    }
+    pieces.push(p["text"]);
+  }
+  const raw = parts.length === 1 ? (parts[0] ?? null) : parts;
+  if (pieces.length === 0) return { text: null, raw };
+  return { text: pieces.join("\n\n"), raw };
+}
+
+function textFromParts(parts: unknown[]): string | null {
+  const pieces: string[] = [];
+  for (const part of parts) {
+    const p = asRecord(part);
+    if (!p || typeof p["text"] !== "string") continue;
+    pieces.push(p["text"]);
+  }
+  const joined = pieces.map((s) => s.trim()).filter((s) => s.length > 0).join("\n\n");
+  return joined.length > 0 ? joined : null;
+}
+
+function extractReasoningText(
+  record: Record<string, unknown>,
+  messageRecord: Record<string, unknown> | null,
+): string | null {
+  const sources: unknown[] = [
+    record["summary"],
+    record["rawContent"],
+    messageRecord?.["summary"],
+    messageRecord?.["rawContent"],
+    record["content"],
+    messageRecord?.["content"],
+    record["text"],
+    messageRecord?.["text"],
+    record["thinking"],
+    messageRecord?.["thinking"],
+  ];
+  for (const src of sources) {
+    if (typeof src === "string") {
+      const trimmed = src.trim();
+      if (trimmed.length > 0) return trimmed;
+      continue;
+    }
+    if (!Array.isArray(src)) continue;
+    const text = textFromParts(src);
+    if (text !== null) return text;
+  }
+  return null;
+}
+
 function parseLine(line: string): ParsedLine | null {
   let value: unknown;
   try {
@@ -87,6 +148,8 @@ function parseLine(line: string): ParsedLine | null {
   return {
     ts: parseTs(record["timestamp"]),
     role: role !== null && role.length >= 1 && role.length <= 64 ? role : null,
+    type: typeof record["type"] === "string" ? record["type"] : null,
+    reasoningText: extractReasoningText(record, messageRecord),
     content: messageRecord
       ? messageRecord["content"] !== undefined
         ? messageRecord["content"]
@@ -97,25 +160,23 @@ function parseLine(line: string): ParsedLine | null {
   };
 }
 
-const TEXT_PART_TYPES = new Set(["text", "input_text", "output_text"]);
+interface ReasoningBufferEntry {
+  text: string;
+  ts: number | null;
+}
 
-function joinTextParts(parts: unknown[]): { text: string | null; raw: unknown } {
-  const pieces: string[] = [];
-  for (const part of parts) {
-    const p = asRecord(part);
-    if (!p) continue;
-    if (!TEXT_PART_TYPES.has(typeof p["type"] === "string" ? p["type"] : "") || typeof p["text"] !== "string") {
-      continue;
-    }
-    pieces.push(p["text"]);
-  }
-  const raw = parts.length === 1 ? (parts[0] ?? null) : parts;
-  if (pieces.length === 0) return { text: null, raw };
-  return { text: pieces.join("\n\n"), raw };
+function reasoningPartsOf(buffer: ReasoningBufferEntry[]): Array<{ type: "reasoning"; text: string }> {
+  return buffer.map((b) => ({ type: "reasoning" as const, text: b.text }));
+}
+
+function withReasoningParts(raw: unknown, parts: Array<{ type: "reasoning"; text: string }>): unknown {
+  if (Array.isArray(raw)) return [...parts, ...raw];
+  if (raw === null || raw === undefined) return parts;
+  return [...parts, raw];
 }
 
 export function parseTranscript(jsonl: string, source: WorkbuddySource): ParseResult {
-  const stats: ParseStats = { lines: 0, parseErrors: 0, kept: 0, dropped: 0 };
+  const stats: ParseStats = { lines: 0, parseErrors: 0, kept: 0, dropped: 0, reasoning: 0, reasoningSkipped: 0 };
   const rawLines = jsonl.split(/\r?\n/).filter((l) => l.trim().length > 0);
 
   let sessionId = source.sessionId ?? null;
@@ -128,6 +189,7 @@ export function parseTranscript(jsonl: string, source: WorkbuddySource): ParseRe
   }
 
   const messages: MessageInput[] = [];
+  let reasoningBuffer: ReasoningBufferEntry[] = [];
   let firstUserText: string | null = null;
   let aiTitle: string | null = null;
   let firstTs: number | null = null;
@@ -145,6 +207,15 @@ export function parseTranscript(jsonl: string, source: WorkbuddySource): ParseRe
       lastTs = parsed.ts;
     }
     if (parsed.aiTitle !== null && aiTitle === null) aiTitle = parsed.aiTitle;
+    if (parsed.role === null && parsed.type === "reasoning") {
+      if (parsed.reasoningText !== null) {
+        reasoningBuffer.push({ text: truncateText(parsed.reasoningText, MAX_TEXT_LENGTH), ts: parsed.ts });
+        stats.reasoning++;
+      } else {
+        stats.reasoningSkipped++;
+      }
+      continue;
+    }
     if (parsed.role === null) {
       stats.dropped++;
       continue;
@@ -165,6 +236,10 @@ export function parseTranscript(jsonl: string, source: WorkbuddySource): ParseRe
       text = extractUserText(text);
     }
     if (text !== null) text = truncateText(text, MAX_TEXT_LENGTH);
+    if (parsed.role === "assistant" && reasoningBuffer.length > 0) {
+      raw = withReasoningParts(raw, reasoningPartsOf(reasoningBuffer));
+      reasoningBuffer = [];
+    }
     const message: MessageInput = { role: parsed.role, raw };
     if (text !== null) message.text = text;
     if (parsed.ts !== null) message.ts = parsed.ts;
@@ -173,6 +248,15 @@ export function parseTranscript(jsonl: string, source: WorkbuddySource): ParseRe
     }
     messages.push(message);
     stats.kept++;
+  }
+
+  if (reasoningBuffer.length > 0) {
+    const lastTsEntry = [...reasoningBuffer].reverse().find((b) => b.ts !== null);
+    const flush: MessageInput = { role: "assistant", raw: reasoningPartsOf(reasoningBuffer) };
+    if (lastTsEntry && lastTsEntry.ts !== null) flush.ts = lastTsEntry.ts;
+    messages.push(flush);
+    stats.kept++;
+    reasoningBuffer = [];
   }
 
   const trimmedMessages = messages.length > MAX_MESSAGES ? messages.slice(-MAX_MESSAGES) : messages;
