@@ -91,45 +91,57 @@ describe("0003 repair vec0 shadow tables", () => {
   });
 });
 
-describe("0005 session meta chunk", () => {
-  function seedChunkState(db: SqliteDatabase): void {
-    db.exec(
-      "INSERT INTO sessions (id, agent, machine, source_id, created_at, updated_at) VALUES ('s1', 'opencode', 'M1', 'sid', 1, 2)",
-    );
-    db.exec("INSERT INTO messages (id, session_id, idx, role, text) VALUES (11, 's1', 0, 'user', 'hello')");
-    db.exec(
-      "INSERT INTO message_chunks (id, message_id, chunk_no, source, text, char_start) VALUES (5, 11, 0, 'text', 'hello', 0)",
-    );
-    db.exec(
-      "CREATE VIRTUAL TABLE chunk_embeddings_bge_m3 USING vec0 (chunk_id INTEGER PRIMARY KEY, embedding float[1024])",
-    );
-    db.exec(
-      "CREATE VIRTUAL TABLE chunk_embeddings_custom_model USING vec0 (chunk_id INTEGER PRIMARY KEY, embedding float[1024])",
-    );
-    const insert = db.prepare("INSERT INTO chunk_embeddings_bge_m3 (chunk_id, embedding) VALUES (?, ?)");
-    insert.run(BigInt(5), toVectorBlob(hashVector("hello")));
-    db.exec("UPDATE sessions SET indexed_at = 3, indexed_model = 'bge-m3'");
-  }
+function seedChunkState(db: SqliteDatabase): void {
+  db.exec(
+    "INSERT INTO sessions (id, agent, machine, source_id, created_at, updated_at) VALUES ('s1', 'opencode', 'M1', 'sid', 1, 2)",
+  );
+  db.exec("INSERT INTO messages (id, session_id, idx, role, text) VALUES (11, 's1', 0, 'user', 'hello')");
+  db.exec(
+    "INSERT INTO message_chunks (id, message_id, chunk_no, source, text, char_start) VALUES (5, 11, 0, 'text', 'hello', 0)",
+  );
+  db.exec(
+    "CREATE VIRTUAL TABLE chunk_embeddings_bge_m3 USING vec0 (chunk_id INTEGER PRIMARY KEY, embedding float[1024])",
+  );
+  db.exec(
+    "CREATE VIRTUAL TABLE chunk_embeddings_custom_model USING vec0 (chunk_id INTEGER PRIMARY KEY, embedding float[1024])",
+  );
+  const insert = db.prepare("INSERT INTO chunk_embeddings_bge_m3 (chunk_id, embedding) VALUES (?, ?)");
+  insert.run(BigInt(5), toVectorBlob(hashVector("hello")));
+  db.exec("UPDATE sessions SET indexed_at = 3, indexed_model = 'bge-m3'");
+}
 
+function expectChunkStateCleared(db: SqliteDatabase, migration: string): void {
+  migrate(db);
+  seedChunkState(db);
+  expect(tableExists(db, "chunk_embeddings_bge_m3")).toBe(true);
+  expect(tableExists(db, "chunk_embeddings_custom_model")).toBe(true);
+
+  forgetMigration(db, migration);
+  migrate(db);
+
+  expect(tableNames(db, "chunk_embeddings_%")).toEqual([]);
+  expect((db.prepare("SELECT COUNT(*) AS n FROM message_chunks").get() as { n: number }).n).toBe(0);
+  const flags = db.prepare("SELECT indexed_at, indexed_model FROM sessions WHERE id = 's1'").get() as {
+    indexed_at: number | null;
+    indexed_model: string | null;
+  };
+  expect(flags.indexed_at).toBeNull();
+  expect(flags.indexed_model).toBeNull();
+  db.close();
+}
+
+describe("0005 session meta chunk", () => {
   it("clears chunks, drops every chunk_embeddings vtab and resets indexing flags", () => {
     const dir = mkdtempSync(path.join(tmpdir(), "session-hub-meta-migrate-"));
     const db = createDb(path.join(dir, "meta.db"));
-    migrate(db);
-    seedChunkState(db);
-    expect(tableExists(db, "chunk_embeddings_bge_m3")).toBe(true);
-    expect(tableExists(db, "chunk_embeddings_custom_model")).toBe(true);
+    expectChunkStateCleared(db, "0005_session_meta_chunk");
+  });
+});
 
-    forgetMigration(db, "0005_session_meta_chunk");
-    migrate(db);
-
-    expect(tableNames(db, "chunk_embeddings_%")).toEqual([]);
-    expect((db.prepare("SELECT COUNT(*) AS n FROM message_chunks").get() as { n: number }).n).toBe(0);
-    const flags = db.prepare("SELECT indexed_at, indexed_model FROM sessions WHERE id = 's1'").get() as {
-      indexed_at: number | null;
-      indexed_model: string | null;
-    };
-    expect(flags.indexed_at).toBeNull();
-    expect(flags.indexed_model).toBeNull();
-    db.close();
+describe("0006 meta title only", () => {
+  it("clears chunks, drops every chunk_embeddings vtab and resets indexing flags", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "session-hub-title-only-migrate-"));
+    const db = createDb(path.join(dir, "title-only.db"));
+    expectChunkStateCleared(db, "0006_meta_title_only");
   });
 });
