@@ -332,50 +332,62 @@ function SearchPage() {
               aria-label="来源会话 ID 过滤"
             />
           </div>
-          <span>创建</span>
-          <Input
-            type="date"
-            value={createdFrom}
-            onChange={(e) => {
-              setCreatedFrom(e.target.value);
-              applyImmediate({ ...formFilters, created_from: e.target.value });
-            }}
-            className="h-8 w-36 text-xs"
-            aria-label="创建时间起点"
-          />
-          <span>–</span>
-          <Input
-            type="date"
-            value={createdTo}
-            onChange={(e) => {
-              setCreatedTo(e.target.value);
-              applyImmediate({ ...formFilters, created_to: e.target.value });
-            }}
-            className="h-8 w-36 text-xs"
-            aria-label="创建时间终点"
-          />
-          <span>更新</span>
-          <Input
-            type="date"
-            value={updatedFrom}
-            onChange={(e) => {
-              setUpdatedFrom(e.target.value);
-              applyImmediate({ ...formFilters, updated_from: e.target.value });
-            }}
-            className="h-8 w-36 text-xs"
-            aria-label="更新时间起点"
-          />
-          <span>–</span>
-          <Input
-            type="date"
-            value={updatedTo}
-            onChange={(e) => {
-              setUpdatedTo(e.target.value);
-              applyImmediate({ ...formFilters, updated_to: e.target.value });
-            }}
-            className="h-8 w-36 text-xs"
-            aria-label="更新时间终点"
-          />
+          <div className="flex items-center gap-2">
+            <span>创建</span>
+            <div className="w-36">
+              <Input
+                type="date"
+                value={createdFrom}
+                onChange={(e) => {
+                  setCreatedFrom(e.target.value);
+                  applyImmediate({ ...formFilters, created_from: e.target.value });
+                }}
+                className="h-8 text-xs"
+                aria-label="创建时间起点"
+              />
+            </div>
+            <span>–</span>
+            <div className="w-36">
+              <Input
+                type="date"
+                value={createdTo}
+                onChange={(e) => {
+                  setCreatedTo(e.target.value);
+                  applyImmediate({ ...formFilters, created_to: e.target.value });
+                }}
+                className="h-8 text-xs"
+                aria-label="创建时间终点"
+              />
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span>更新</span>
+            <div className="w-36">
+              <Input
+                type="date"
+                value={updatedFrom}
+                onChange={(e) => {
+                  setUpdatedFrom(e.target.value);
+                  applyImmediate({ ...formFilters, updated_from: e.target.value });
+                }}
+                className="h-8 text-xs"
+                aria-label="更新时间起点"
+              />
+            </div>
+            <span>–</span>
+            <div className="w-36">
+              <Input
+                type="date"
+                value={updatedTo}
+                onChange={(e) => {
+                  setUpdatedTo(e.target.value);
+                  applyImmediate({ ...formFilters, updated_to: e.target.value });
+                }}
+                className="h-8 text-xs"
+                aria-label="更新时间终点"
+              />
+            </div>
+          </div>
           {filterActive ? (
             <Button type="button" variant="ghost" size="sm" className="h-8" onClick={clearFilters}>
               清除筛选
