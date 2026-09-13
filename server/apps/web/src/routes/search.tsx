@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowRightIcon, CircleAlertIcon, SearchIcon, SparklesIcon, TextSearchIcon } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { formatDistance, formatRelative } from "@/lib/format";
+import { hasAnyFilter, toApiFilters, toSearchParams, type SearchFilterInput } from "@/lib/search-filters";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
@@ -14,14 +15,24 @@ import { cn } from "@/lib/cn";
 
 type SearchMode = "semantic" | "keyword";
 
+interface SearchParams extends SearchFilterInput {
+  q?: string;
+  mode?: SearchMode;
+  top_k?: number;
+}
+
+const FILTER_KEYS = ["agent", "machine", "title", "source_id", "created_from", "created_to", "updated_from", "updated_to"] as const;
+
 export const Route = createFileRoute("/search")({
-  validateSearch: (search: Record<string, unknown>): { q?: string; mode?: SearchMode; top_k?: number; agent?: string; machine?: string } => {
-    const out: { q?: string; mode?: SearchMode; top_k?: number; agent?: string; machine?: string } = {};
+  validateSearch: (search: Record<string, unknown>): SearchParams => {
+    const out: SearchParams = {};
     if (typeof search.q === "string" && search.q !== "") out.q = search.q;
     if (search.mode === "keyword" || search.mode === "semantic") out.mode = search.mode;
     if (typeof search.top_k === "string" && /^\d+$/.test(search.top_k)) out.top_k = Number(search.top_k);
-    if (typeof search.agent === "string" && search.agent !== "") out.agent = search.agent;
-    if (typeof search.machine === "string" && search.machine !== "") out.machine = search.machine;
+    for (const key of FILTER_KEYS) {
+      const value = search[key];
+      if (typeof value === "string" && value !== "") out[key] = value;
+    }
     return out;
   },
   component: SearchPage,
@@ -48,6 +59,12 @@ function SearchPage() {
   const [topK, setTopK] = useState(String(search.top_k ?? 10));
   const [agent, setAgent] = useState(search.agent ?? "");
   const [machine, setMachine] = useState(search.machine ?? "");
+  const [title, setTitle] = useState(search.title ?? "");
+  const [sourceId, setSourceId] = useState(search.source_id ?? "");
+  const [createdFrom, setCreatedFrom] = useState(search.created_from ?? "");
+  const [createdTo, setCreatedTo] = useState(search.created_to ?? "");
+  const [updatedFrom, setUpdatedFrom] = useState(search.updated_from ?? "");
+  const [updatedTo, setUpdatedTo] = useState(search.updated_to ?? "");
   const mode: SearchMode = search.mode ?? "semantic";
   const keyword = mode === "keyword";
 
@@ -55,17 +72,54 @@ function SearchPage() {
     inputRef.current?.focus();
   }, []);
 
+  const stats = useQuery({ queryKey: ["stats"], queryFn: () => api.stats() });
+
   const submitted = (search.q ?? "").trim() !== "";
   const topKNum = /^\d+$/.test(topK) ? Math.min(Math.max(Number(topK), 1), 50) : 10;
+
+  const urlFilters: SearchFilterInput = {
+    agent: search.agent,
+    machine: search.machine,
+    title: search.title,
+    source_id: search.source_id,
+    created_from: search.created_from,
+    created_to: search.created_to,
+    updated_from: search.updated_from,
+    updated_to: search.updated_to,
+  };
+  const formFilters: SearchFilterInput = {
+    agent,
+    machine,
+    title,
+    source_id: sourceId,
+    created_from: createdFrom,
+    created_to: createdTo,
+    updated_from: updatedFrom,
+    updated_to: updatedTo,
+  };
+  const filterActive = hasAnyFilter(urlFilters);
+
   const result = useQuery({
-    queryKey: ["search", mode, search.q ?? "", topKNum, search.agent ?? "", search.machine ?? ""],
+    queryKey: [
+      "search",
+      mode,
+      search.q ?? "",
+      topKNum,
+      search.agent ?? "",
+      search.machine ?? "",
+      search.title ?? "",
+      search.source_id ?? "",
+      search.created_from ?? "",
+      search.created_to ?? "",
+      search.updated_from ?? "",
+      search.updated_to ?? "",
+    ],
     queryFn: async (): Promise<NormalizedResult> => {
       if (keyword) {
         const res = await api.grep({
           q: search.q ?? "",
           limit: topKNum,
-          agent: search.agent || undefined,
-          machine: search.machine || undefined,
+          ...toApiFilters(urlFilters),
         });
         return {
           kind: "keyword",
@@ -86,10 +140,7 @@ function SearchPage() {
       const res = await api.search({
         query: search.q ?? "",
         top_k: topKNum,
-        filters: {
-          agent: search.agent || undefined,
-          machine: search.machine || undefined,
-        },
+        filters: toApiFilters(urlFilters),
       });
       return {
         kind: "semantic",
@@ -112,33 +163,51 @@ function SearchPage() {
   });
   const data = result.data?.kind === mode ? result.data : undefined;
 
-  function navigateWith(searchOverride: Record<string, string | number | undefined>): void {
+  function navigateWith(searchOverride: Partial<SearchParams>): void {
     void navigate({
       to: "/search",
-      search: { mode: mode !== "semantic" ? mode : undefined, ...searchOverride },
+      search: { mode: mode !== "semantic" ? mode : undefined, q: search.q, top_k: topKNum, ...searchOverride },
     });
   }
 
   function submit(): void {
     const q = input.trim();
     if (!q) return;
-    navigateWith({ q, top_k: topKNum, agent: agent || undefined, machine: machine || undefined });
+    navigateWith({ q, top_k: topKNum, ...toSearchParams(formFilters) });
+  }
+
+  function applyImmediate(next: SearchFilterInput): void {
+    if (!submitted) return;
+    navigateWith({ q: search.q, top_k: topKNum, ...toSearchParams(next) });
   }
 
   function switchMode(next: SearchMode): void {
     if (next === mode) return;
-    const nextMode: SearchMode = next;
     void navigate({
       to: "/search",
       search: {
-        mode: nextMode !== "semantic" ? nextMode : undefined,
+        mode: next !== "semantic" ? next : undefined,
         q: search.q,
         top_k: topKNum,
-        agent: search.agent || undefined,
-        machine: search.machine || undefined,
+        ...toSearchParams(urlFilters),
       },
     });
   }
+
+  function clearFilters(): void {
+    setAgent("");
+    setMachine("");
+    setTitle("");
+    setSourceId("");
+    setCreatedFrom("");
+    setCreatedTo("");
+    setUpdatedFrom("");
+    setUpdatedTo("");
+    navigateWith({ q: search.q, top_k: topKNum });
+  }
+
+  const agents = Object.keys(stats.data?.by_agent ?? {});
+  const machines = Object.keys(stats.data?.by_machine ?? {});
 
   return (
     <Page className="mx-auto w-full max-w-3xl">
@@ -208,39 +277,108 @@ function SearchPage() {
           <div className="w-32">
             <Select
               value={agent}
-              onChange={(e) => setAgent(e.target.value)}
+              onChange={(e) => {
+                setAgent(e.target.value);
+                applyImmediate({ ...formFilters, agent: e.target.value });
+              }}
               className="h-8 text-xs"
               aria-label="Agent 过滤"
             >
               <option value="">全部 Agent</option>
-              <option value="opencode">opencode</option>
-              <option value="workbuddy">workbuddy</option>
-              <option value="doubao">doubao</option>
+              {agents.map((a) => (
+                <option key={a} value={a}>
+                  {a}
+                </option>
+              ))}
+              {agent && !agents.includes(agent) ? <option value={agent}>{agent}</option> : null}
             </Select>
           </div>
           <div className="w-40">
             <Select
               value={machine}
-              onChange={(e) => setMachine(e.target.value)}
+              onChange={(e) => {
+                setMachine(e.target.value);
+                applyImmediate({ ...formFilters, machine: e.target.value });
+              }}
               className="h-8 text-xs"
               aria-label="机器过滤"
             >
               <option value="">全部机器</option>
-              {machine ? <option value={machine}>{machine}</option> : null}
+              {machines.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+              {machine && !machines.includes(machine) ? <option value={machine}>{machine}</option> : null}
             </Select>
           </div>
-          {submitted ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setAgent("");
-                setMachine("");
-                navigateWith({ q: search.q, top_k: topKNum });
-              }}
-            >
-              清除过滤
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <div className="w-44">
+            <Input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="h-8 text-xs"
+              placeholder="标题包含…"
+              aria-label="标题过滤"
+            />
+          </div>
+          <div className="w-44">
+            <Input
+              value={sourceId}
+              onChange={(e) => setSourceId(e.target.value)}
+              className="h-8 text-xs"
+              placeholder="来源会话 ID"
+              aria-label="来源会话 ID 过滤"
+            />
+          </div>
+          <span>创建</span>
+          <Input
+            type="date"
+            value={createdFrom}
+            onChange={(e) => {
+              setCreatedFrom(e.target.value);
+              applyImmediate({ ...formFilters, created_from: e.target.value });
+            }}
+            className="h-8 w-36 text-xs"
+            aria-label="创建时间起点"
+          />
+          <span>–</span>
+          <Input
+            type="date"
+            value={createdTo}
+            onChange={(e) => {
+              setCreatedTo(e.target.value);
+              applyImmediate({ ...formFilters, created_to: e.target.value });
+            }}
+            className="h-8 w-36 text-xs"
+            aria-label="创建时间终点"
+          />
+          <span>更新</span>
+          <Input
+            type="date"
+            value={updatedFrom}
+            onChange={(e) => {
+              setUpdatedFrom(e.target.value);
+              applyImmediate({ ...formFilters, updated_from: e.target.value });
+            }}
+            className="h-8 w-36 text-xs"
+            aria-label="更新时间起点"
+          />
+          <span>–</span>
+          <Input
+            type="date"
+            value={updatedTo}
+            onChange={(e) => {
+              setUpdatedTo(e.target.value);
+              applyImmediate({ ...formFilters, updated_to: e.target.value });
+            }}
+            className="h-8 w-36 text-xs"
+            aria-label="更新时间终点"
+          />
+          {filterActive ? (
+            <Button type="button" variant="ghost" size="sm" className="h-8" onClick={clearFilters}>
+              清除筛选
             </Button>
           ) : null}
         </div>
