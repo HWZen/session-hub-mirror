@@ -14,7 +14,7 @@ Session Hub：跨端跨 Agent 的个人会话档案库 + 检索层。只做"存�
 （并行开发时规划、开发、提交均在对应 worktree 内执行，见"并行开发（worktree 工作流）"）：
 
 1. **规划阶段**（用户提需求，当次会话完成）
-   - 递增所属子系统 `package.json` 的 version：新功能 +0.1（MINOR），破坏性/大重构升首位（MAJOR），小修补丁（PATCH）
+   - 递增所属子系统 `package.json` 的 version：新功能 +0.1（MINOR），破坏性/大重构升首位（MAJOR），小修补丁（PATCH；在所属 MINOR 线的现有 worktree 内递增，不新建分支，见下）
    - 理解需求、侦察现状，写 `<子系统>/develop-doc/<新版本号>/plan.md`：需求描述、方案、涉及文件、任务清单、验收标准
    - 全局决策仍以根 `plan.md` 为准；若需求要推翻全局决策，先改 `plan.md` 再写本版 plan
    - 此阶段**不写业务代码**
@@ -25,11 +25,12 @@ Session Hub：跨端跨 Agent 的个人会话档案库 + 检索层。只做"存�
 
 ## 并行开发（worktree 工作流）
 
-用户提需求后**新建分支 + worktree，之后该需求的所有工作（规划、开发、测试、提交）都在 worktree 内进行**；
-master 主工作区只保留已合并内容，不再直接开发。
+用户提新需求后**新建分支 + worktree，之后该需求的所有工作（规划、开发、测试、提交）都在 worktree 内进行**；
+master 主工作区只保留已合并内容，不再直接开发。分支/worktree 按 MINOR 版本线建立，同一条线内的后续改动不新建（见下）。
 
-1. 建分支与 worktree：分支名 `<版本号>-<模块名>-dev`（模块名标明改动所属子系统，如 `server`、`opencode-plugin`、`collector`），worktree 放仓库内 `.worktrees/<分支名>/`（已 gitignore）：
-   `git worktree add .worktrees/<分支名> -b <分支名>`（如 `.worktrees/0.9.0-server-dev`）
+1. 建分支与 worktree：分支名 `<版本号>-<模块名>-dev`，**版本号最后一位填 `x`**（模块名标明改动所属子系统，如 `server`、`opencode-plugin`、`collector`），worktree 放仓库内 `.worktrees/<分支名>/`（已 gitignore）：
+   `git worktree add .worktrees/<分支名> -b <分支名>`（如下个服务端需求建 `.worktrees/0.19.x-server-dev`）
+   一个分支/worktree 覆盖整条 MINOR 版本线：该线内的后续补充、修改、修补（PATCH，如 0.19.1、0.19.2）继续在同一分支/worktree 内进行，不新建；只有新 MINOR/MAJOR 需求（如 0.20）才新建分支/worktree。
 2. worktree 初始化（gitignore 的文件不会随 worktree 出现，需从主工作区拷贝）：
    - `server/.env` → 拷贝后**必改两处**：`PORT`（避开 7428，用如 7429+）、`SH_DB_PATH`（指向本 worktree 自己的 `server/data/`）
    - `server/config/providers.local.json`（embedding 真实配置，含密钥）

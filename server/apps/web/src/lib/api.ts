@@ -10,6 +10,7 @@ import type {
   SearchHit,
   SearchResponse,
   SessionDetail,
+  SessionFilters,
   SessionListItem,
   SessionListResponse,
   StatsSummary,
@@ -39,14 +40,7 @@ export interface ProviderSettingsInput {
 export interface SessionSearchBody {
   query: string;
   top_k?: number;
-  filters?: {
-    agent?: string;
-    machine?: string;
-    created_from?: number;
-    created_to?: number;
-    updated_from?: number;
-    updated_to?: number;
-  };
+  filters?: SessionFilters;
 }
 
 export interface SessionListParams {
