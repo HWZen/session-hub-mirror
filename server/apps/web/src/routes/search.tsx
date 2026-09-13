@@ -332,6 +332,8 @@ function SearchPage() {
               aria-label="来源会话 ID 过滤"
             />
           </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <div className="flex items-center gap-2">
             <span>创建</span>
             <div className="w-36">
