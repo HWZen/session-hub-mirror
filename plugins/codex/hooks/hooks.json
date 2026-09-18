@@ -1,0 +1,18 @@
+{
+  "description": "Archive completed Codex turns in Session Hub",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/dist/hook.js\"",
+            "commandWindows": "node \"${PLUGIN_ROOT}\\dist\\hook.js\"",
+            "timeout": 10,
+            "statusMessage": "Queueing Session Hub archive"
+          }
+        ]
+      }
+    ]
+  }
+}

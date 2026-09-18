@@ -1,0 +1,20 @@
+{
+  "name": "codex",
+  "version": "0.1.0",
+  "description": "Uploads Codex conversations to a private Session Hub archive.",
+  "author": {
+    "name": "Session Hub"
+  },
+  "keywords": ["codex", "session", "archive"],
+  "interface": {
+    "displayName": "Session Hub Codex",
+    "shortDescription": "Archive Codex conversations in Session Hub",
+    "longDescription": "Uploads a full conversation snapshot after each completed Codex turn and provides a historical backfill command.",
+    "developerName": "Session Hub",
+    "category": "Productivity",
+    "capabilities": ["Hooks"],
+    "defaultPrompt": [
+      "Archive this Codex conversation in Session Hub."
+    ]
+  }
+}
