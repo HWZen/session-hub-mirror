@@ -57,7 +57,7 @@ describe("semantic search", () => {
     const parts = buildApp();
     await seed(parts);
     const { app } = parts;
-    const firstChunkEmbedInput = `会话元数据：标题=nodejs debug；Agent=opencode；机器=M1；源会话ID=sA\n${NEEDLE}`;
+    const firstChunkEmbedInput = `nodejs debug\n${NEEDLE}`;
     const res = await postSearch(app, { query: firstChunkEmbedInput, top_k: 5 });
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
@@ -96,7 +96,7 @@ describe("semantic search", () => {
     expect(body.results[0]!.snippets[0]!.source).toBe("reasoning");
   });
 
-  it("matches a session through its meta header prepended to the first chunk", async () => {
+  it("matches a session through its title prepended to the first chunk", async () => {
     const parts = buildApp();
     const { app, settleIndexing } = parts;
     await putSession(app, {
@@ -107,8 +107,7 @@ describe("semantic search", () => {
     });
     await settleIndexing();
 
-    const header = "会话元数据：标题=vector metadata；Agent=opencode；机器=M1；源会话ID=sMeta";
-    const res = await postSearch(app, { query: `${header}\n${NEEDLE}`, top_k: 5 });
+    const res = await postSearch(app, { query: `vector metadata\n${NEEDLE}`, top_k: 5 });
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       results: Array<{ session: { source_id: string }; distance: number; snippets: Array<{ text: string }> }>;
