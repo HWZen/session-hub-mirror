@@ -89,7 +89,8 @@ PUT /v1/sessions?help=1
 Authorization: Bearer <token>
 ```
 
-**响应字段：** `method` / `path` / `summary` / `params[]`（name、in（query/body/path）、type、required、desc）/
+**响应字段：** `method` / `path` / `summary` / `description`（详细描述：何时选用、行为语义与取舍）/
+`params[]`（name、in（query/body/path）、type、required、desc）/
 `returns[]` / `example` / `errors[]`（status、message、recoverable）。
 
 **使用流程**：先 `GET /v1/help` 找目标接口 → 再 `?help=1` 看 L1 详情 → 按 `params` 构造请求执行。

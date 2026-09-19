@@ -35,6 +35,9 @@ describe("help L0", () => {
     expect(paths).toContain("GET /v1/sessions/:id/full");
     expect(paths).toContain("GET /v1/sessions/:id/full_length");
     expect(data.hint).toContain("?help=1");
+    for (const e of data.endpoints) {
+      expect(Object.keys(e).sort()).toEqual(["method", "path", "summary"]);
+    }
   });
 
   it("未认证访问 /v1/help 返回 401", async () => {
@@ -53,11 +56,13 @@ describe("help L1 (?help=1)", () => {
       method: string;
       path: string;
       summary: string;
+      description: string;
       params: Array<{ name: string }>;
       errors: Array<{ status: number }>;
     };
     expect(doc.method).toBe("PUT");
     expect(doc.path).toBe("/v1/sessions");
+    expect(doc.description.trim().length).toBeGreaterThan(0);
     expect(doc.params.map((p) => p.name)).toEqual(Object.keys(sessionUpsertSchema.shape));
     expect(doc.errors.some((e) => e.status === 400)).toBe(true);
     expect(repo.list({}, { limit: 10, offset: 0 }).total).toBe(0);
@@ -99,7 +104,7 @@ describe("help L1 (?help=1)", () => {
     const baseRes = await request(app, "GET", "/v1/sessions/abc123?help=1");
     const baseDoc = (await baseRes.json()) as { path: string; summary: string };
     expect(baseDoc.path).toBe("/v1/sessions/:id");
-    expect(baseDoc.summary).toContain("仅 idx/role/text/ts");
+    expect(baseDoc.summary).toContain("idx/role/text/ts");
   });
 
   it("未认证 ?help=1 仍返回 401", async () => {
@@ -123,6 +128,12 @@ describe("help L1 (?help=1)", () => {
 });
 
 describe("help 注册表一致性", () => {
+  it("所有端点 description 非空", () => {
+    for (const e of endpoints) {
+      expect(e.description.trim().length, `${e.method} ${e.path} description 为空`).toBeGreaterThan(0);
+    }
+  });
+
   it("所有端点 path 全局唯一（method + path）", () => {
     const keys = endpoints.map((e) => `${e.method} ${e.path}`);
     expect(new Set(keys).size).toBe(keys.length);
