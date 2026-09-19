@@ -162,9 +162,9 @@ export const endpoints: EndpointHelp[] = [
   {
     method: "GET",
     path: "/v1/sessions/:id",
-    summary: "获取会话对话消息（仅 idx/role/text/ts，不含会话元数据与消息 raw）",
+    summary: "获取会话对话消息（idx/role/text/ts，不含会话元数据与消息 raw）",
     description:
-      "轻量对话视图：仅返回每条消息的 idx/role/text/ts，不含会话元数据与消息 raw。只看对话流、不关心原始结构时选它，响应体远小于 /full。",
+      "对话视图：返回每条消息的 idx/role/text/ts，不含会话元数据与消息 raw。只看对话流、不需要原始结构时选它；要完整元数据或消息 raw 再走 /full。",
     params: [{ name: "id", in: "path", type: "string", required: true, desc: "会话 ID" }],
     returns: [
       { name: "messages", type: "object[]", desc: "对话消息数组：{ idx, role, text, ts }，按 idx 升序；不含 raw，raw 只在 /full 返回" },
@@ -176,7 +176,7 @@ export const endpoints: EndpointHelp[] = [
     path: "/v1/sessions/:id/full",
     summary: "获取单个会话全量详情（会话记录 + 全部消息含 raw）",
     description:
-      "全量详情：会话记录 + 全部消息（含 raw 原始结构），审计与回放消息原始形态时用。长会话响应可能很大，建议先用 /full_length 探测大小再决定是否拉取。",
+      "全量详情：会话记录 + 全部消息（含 raw 原始结构），审计与回放消息原始形态时用。会话响应会很大，如无必要请勿直接读取返回的所有内容，建议写脚本按需解析；拉取前可用 /full_length 探测大小。",
     params: [{ name: "id", in: "path", type: "string", required: true, desc: "会话 ID" }],
     returns: [{ name: "（响应体）", type: "object", desc: "SessionDetail：会话记录 + messages 数组" }],
     errors: [{ status: 404, message: "not found", recoverable: false }, ...UNAUTHORIZED],
@@ -206,10 +206,10 @@ export const endpoints: EndpointHelp[] = [
     path: "/v1/search",
     summary: "向量语义搜索会话（活跃 embedding 模型的向量空间）",
     description:
-      "语义检索主入口：在活跃 embedding 模型的向量空间内对消息切片（正文 + 从 raw 抽取的 reasoning）做向量检索，返回会话级结果与命中切片，按距离升序。可用 filters 缩小范围。无可用 embedding 提供商时返回 503，此时可退回 /v1/grep 做关键词检索。",
+      "语义检索主入口：在活跃 embedding 模型的向量空间内检索会话，返回会话级结果与命中切片，按距离升序；可用 filters 缩小范围。无可用 embedding 提供商时返回 503，可退回 /v1/grep 做关键词检索。\n\n建库逻辑：上传成功即返回，会话在后台异步建立向量索引（进度看 GET /v1/stats 的 indexed/unindexed）。每条消息索引两类内容：正文（messages.text）与思考（从消息 raw 中 type=reasoning 的 part 抽取），各自切成约 1200 字符的切片，相邻切片带 180 字符重叠；会话首个切片前会拼上元数据头（标题/Agent/机器/源会话ID/工作目录），因此按标题、项目路径搜索也能命中。向量由活跃模型（权重最高且已启用的提供商）计算，按模型分表存储，切换活跃模型后需对全库重建索引。\n\n检索执行：查询词经同一活跃模型向量化，对全库切片做 KNN 近邻（候选约 top_k×50、上限 1024 切片），再按会话聚合——会话距离取其全部切片中的最优值，每会话最多返回 5 条命中切片（各 ≤500 字符，source 标明来自正文 text 还是思考 reasoning）。distance 为 L2 欧氏距离，越小越相关（0 为完全一致）；绝对值随模型而变、不可跨模型比较，可用相邻结果间的距离断层判断相关边界——相关结果与噪声之间通常有明显落差。\n\n搜索词构建：用自然语言具体描述症状、主题或需求，越具体越好——带上会话中出现过的报错原文、文件路径、功能名、项目名等词显著提升命中；两三个词的短语会得到发散结果。语义检索匹配「意思相近」而非字面包含，找错误码、函数名等精确词请改走 /v1/grep。\n\n参数建议：top_k 默认 10，实测数百会话规模下相关结果通常集中在前几名、其后距离进入噪声平台期；表述模糊或想扩大召回时建议 20~30，并配合 filters 收窄范围，比单纯加大 top_k 更有效。单次查询耗时主要取决于 embedding 推理（提供商冷启动时明显变慢），与库规模关系不大。",
     params: bodyParams(searchRequestSchema, {
-      query: "自然语言查询，1..8000 字符",
-      top_k: "返回条数，1..50，默认 10",
+      query: "自然语言查询，1..8000 字符；具体描述症状/主题/术语，比两三个词的短查询命中好得多",
+      top_k: "返回会话数（按会话去重后计），1..50，默认 10；表述模糊或要扩大召回时建议 20~30",
       filters: "过滤条件，字段同 GET /v1/sessions 的过滤参数（agent/machine/source_id/时间范围）",
     }),
     returns: [
@@ -218,7 +218,7 @@ export const endpoints: EndpointHelp[] = [
       {
         name: "results",
         type: "object[]",
-        desc: "{ session, distance, snippets } 按距离升序；snippets 为命中切片 { message_idx, role, text, ts, source, distance }，source 为 text（正文）｜reasoning（思考）",
+        desc: "{ session, distance, snippets } 按距离升序；snippets 为命中切片（≤500 字符，每会话最多 5 条）：{ message_idx, role, text, ts, source, distance }，source 为 text（正文）｜reasoning（思考）",
       },
     ],
     example: { query: "上周修的那个登录超时问题", top_k: 5 },
@@ -234,7 +234,7 @@ export const endpoints: EndpointHelp[] = [
     path: "/v1/grep",
     summary: "关键词子串检索消息正文（LIKE 扫描，字面匹配，不依赖 embedding）",
     description:
-      "关键词字面子串检索（LIKE 扫描），不依赖 embedding，是语义检索 503 时的退路。适合精确词（错误码、函数名、文件路径）；LIKE 通配符按字面处理，默认仅 ASCII 大小写折叠。结果按会话分组，分页按命中消息行计。",
+      "关键词字面子串检索（LIKE 扫描），不依赖 embedding，是语义检索 503 时的退路。检索范围是全部会话的消息正文（messages.text）；消息 raw 与思考切片不参与 grep，思考内容只能通过 /v1/search 语义检索命中。适合精确词（错误码、函数名、文件路径）；LIKE 通配符按字面处理，默认仅 ASCII 大小写折叠。结果按会话更新时间倒序分组，每会话最多 5 条命中快照（各 ≤500 字符，含命中点前约 120 字符上下文），分页按命中消息行计。",
     params: queryParams(grepRequestSchema, {
       q: "关键词子串，1..256 字符；%/_/\\ 按字面匹配",
       case_sensitive: "1 开启大小写敏感（默认否；仅 ASCII 折叠）",

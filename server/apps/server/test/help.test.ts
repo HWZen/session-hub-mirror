@@ -104,7 +104,7 @@ describe("help L1 (?help=1)", () => {
     const baseRes = await request(app, "GET", "/v1/sessions/abc123?help=1");
     const baseDoc = (await baseRes.json()) as { path: string; summary: string };
     expect(baseDoc.path).toBe("/v1/sessions/:id");
-    expect(baseDoc.summary).toContain("仅 idx/role/text/ts");
+    expect(baseDoc.summary).toContain("idx/role/text/ts");
   });
 
   it("未认证 ?help=1 仍返回 401", async () => {
