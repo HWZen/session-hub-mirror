@@ -81,15 +81,15 @@ db: {
 
 ## 任务清单
 
-- [ ] health 路由计算并返回 `db.size_bytes`
-- [ ] shared `HealthStatus` 同步新增字段
-- [ ] 增加字节大小格式化函数
-- [ ] 运行状态「数据库」卡片展示“占用空间”
-- [ ] health 测试覆盖数据库大小
-- [ ] 根目录 `npm test` 全绿
-- [ ] 根目录 `npm run build` 全绿
-- [ ] 写 `server/develop-doc/0.20.0/summary.md`
-- [ ] 提交本版本开发改动
+- [x] health 路由计算并返回 `db.size_bytes`
+- [x] shared `HealthStatus` 同步新增字段
+- [x] 增加字节大小格式化函数
+- [x] 运行状态「数据库」卡片展示“占用空间”
+- [x] health 测试覆盖数据库大小
+- [x] 根目录 `npm test` 全绿
+- [x] 根目录 `npm run build` 全绿
+- [x] 写 `server/develop-doc/0.20.0/summary.md`
+- [x] 提交本版本开发改动
 
 ## 验收标准
 
