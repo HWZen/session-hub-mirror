@@ -29,6 +29,24 @@ export function formatNumber(n: number | null | undefined): string {
   return n.toLocaleString("zh-CN");
 }
 
+export function formatBytes(bytes: number | null | undefined): string {
+  if (bytes === null || bytes === undefined || !Number.isFinite(bytes) || bytes < 0) return "—";
+
+  const units = ["B", "KiB", "MiB", "GiB", "TiB"] as const;
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex++;
+  }
+
+  const formatted =
+    unitIndex === 0
+      ? Math.round(value).toLocaleString("zh-CN")
+      : value.toLocaleString("zh-CN", { maximumFractionDigits: 2 });
+  return `${formatted} ${units[unitIndex]}`;
+}
+
 export function formatDistance(d: number): string {
   return d.toFixed(3);
 }

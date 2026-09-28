@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { ActivityIcon, CheckCircle2Icon, CircleAlertIcon, CpuIcon, DatabaseIcon, RotateCcwIcon } from "lucide-react";
 import { api } from "@/lib/api";
-import { formatTime } from "@/lib/format";
+import { formatBytes, formatTime } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -74,6 +74,7 @@ function SystemPage() {
               <CardContent className="pt-0">
                 <dl className="flex flex-col gap-2 text-sm">
                   <Row label="journal_mode" value={data.db.journal_mode} mono />
+                  <Row label="占用空间" value={formatBytes(data.db.size_bytes)} />
                   <Row label="WAL" value="已禁用（SMB 安全要求）" />
                   <Row label="状态" value={data.db.ok ? "正常" : "异常"} />
                 </dl>
