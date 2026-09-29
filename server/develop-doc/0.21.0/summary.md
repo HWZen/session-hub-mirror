@@ -90,9 +90,36 @@
 - `npm run build`：tsc + 前端构建通过；
 - 人工验收（构造数据集）：见 `acceptance/acceptance.md`。
 
+## 线上 dev 验收环境（0.21.x 线复用）
+
+0.21.0 已部署到远程 dev 实例供真实库验收，**0.21.x 线的后续修复与验收继续复用该环境**（修改后重传产物并重启即可），不要动 `~/apps/session-hub`（生产 1696）：
+
+| 项 | 值 |
+|---|---|
+| 机器 | `ssh hwz_intel_26`（WSL2 Ubuntu-26.04，用户 intel，sudo 密码向用户索取） |
+| 部署目录 | `~/apps/session-hub-021-dev` |
+| 服务 | `node apps/server/dist/index.js`（编译产物直跑），端口 **1697**，监听 127.0.0.1 |
+| 公网入口 | `https://session-hub.example.test`（Windows 侧 nginx 反代 → 127.0.0.1:7428） |
+| 数据库 | `~/apps/session-hub-021-dev/server/data/session-hub.db`，生产库的在线一致备份快照（better-sqlite3 backup API）；dev 与生产数据互不同步 |
+| 配置 | `server/.env`（PORT=1697，token 与生产一致）；`server/config/providers.local.json` 复制自生产，embedding 走同一 frpc 隧道 |
+| 依赖 | `node_modules` 整体复制自生产（better-sqlite3/sqlite-vec prebuilds 直接可用，不要在远程跑 `npm install`） |
+| 启动 | `cd ~/apps/session-hub-021-dev/server && nohup node apps/server/dist/index.js > /tmp/sh021-dev.log 2>&1 &`；机器/WSL 重启后需手动拉起 |
+| 日志 | `/tmp/sh021-dev.log` |
+
+更新 dev 代码的流程（本分支有新 commit 时）：
+
+```sh
+git -C .worktrees/feature-0.21.0 archive --format=zip -o <tmp>.zip HEAD   # 注意 -C 指到本 worktree
+scp <tmp>.zip hwz_intel_26:/tmp/
+# 远端解压覆盖到 ~/apps/session-hub-021-dev（gitignore 的 .env/data/config/node_modules 不受影响）
+```
+
+- 仅 TS/前端改动：可本地 `npm run build` 后直传三份产物（`packages/shared/dist`、`server/apps/server/dist`、`server/apps/web/dist`）覆盖，再重启进程——远程缺插件 workspace 依赖，不要在远程跑全量 build。
+- 若迁移有新增：重启即自动执行；重大迁移前先对 dev db 做一份备份。
+
 ## 遗留事项
 
-- 生产真实库（WSL2）验收：部署 0.21.0 后用 §11 的三个真实查询复核，并观察 FTS 引入后的
-  数据库体积变化（0.20.0 系统页可直接查看）；FTS 首次 rebuild 在十万级 chunks 上的耗时待观察。
+- 真实库验收进行中（见 `acceptance/acceptance.md` 与上述 dev 环境），用户反馈的小问题将在
+  0.21.x 线内继续修复；FTS rebuild 在十万级 chunks 上一次性完成，耗时可接受，升级时无需重算 embedding。
 - plan §设计边界中列出的后续方向（text/reasoning/tool 分路、filtered-KNN recall、
   weighted RRF 等）未在本版处理，按计划留待后续版本。
