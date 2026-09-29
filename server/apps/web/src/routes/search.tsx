@@ -444,23 +444,34 @@ function SearchPage() {
             {data.items.map((hit) => (
               <Card key={hit.session.id} className="transition-shadow hover:shadow-md">
                 <CardContent className="flex flex-col gap-2.5 p-4">
-                  <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
                     <Link
                       to="/sessions"
                       search={{ s: hit.session.id }}
-                      className="min-w-0 text-sm font-medium hover:text-primary hover:underline"
+                      className="min-w-0 flex-1 text-sm font-medium hover:text-primary hover:underline"
                     >
                       {hit.session.title ?? hit.session.source_id}
                     </Link>
-                    {hit.matched_by.length > 0 ? (
-                      <Badge variant={hit.matched_by.length === 2 ? "success" : "muted"}>
-                        {hit.matched_by.map((ch) => (ch === "dense" ? "语义" : "词法")).join(" + ")}
-                      </Badge>
-                    ) : null}
-                    {hit.distance !== null ? (
-                      <Badge variant="outline" title="dense 通道最佳距离，仅供参考">
-                        距离 {formatDistance(hit.distance)}
-                      </Badge>
+                    {hit.matched_by.length > 0 || hit.distance !== null ? (
+                      <div className="ml-auto flex shrink-0 items-start gap-1.5">
+                        {hit.matched_by.length > 0 ? (
+                          <Badge
+                            variant={hit.matched_by.length === 2 ? "success" : "muted"}
+                            className="shrink-0 whitespace-nowrap"
+                          >
+                            {hit.matched_by.map((ch) => (ch === "dense" ? "语义" : "词法")).join(" + ")}
+                          </Badge>
+                        ) : null}
+                        {hit.distance !== null ? (
+                          <Badge
+                            variant="outline"
+                            className="shrink-0 whitespace-nowrap"
+                            title="dense 通道最佳距离，仅供参考"
+                          >
+                            距离 {formatDistance(hit.distance)}
+                          </Badge>
+                        ) : null}
+                      </div>
                     ) : null}
                   </div>
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
