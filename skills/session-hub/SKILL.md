@@ -1,6 +1,6 @@
 ---
 name: session-hub
-description: 操作 Session Hub 个人会话档案库：上传/更新会话、语义搜索历史会话、查看统计与索引进度。当需要把会话存入档案库、从历史会话里找东西、或管理会话索引时使用。通过 HTTP 请求即可完成全部操作（不限 curl，任何能发起 HTTP 请求的方式均可），零 SDK 依赖。只需本文件 + 服务端地址 + Token。
+description: 操作 Session Hub 个人会话档案库：上传/更新会话、混合检索历史会话（语义+词法）、查看统计与索引进度。当需要把会话存入档案库、从历史会话里找东西、或管理会话索引时使用。通过 HTTP 请求即可完成全部操作（不限 curl，任何能发起 HTTP 请求的方式均可），零 SDK 依赖。只需本文件 + 服务端地址 + Token。
 ---
 
 # Session Hub · AI Agent Skill
@@ -51,7 +51,7 @@ description: 操作 Session Hub 个人会话档案库：上传/更新会话、�
 ```
 
 - `ok: false` / HTTP 500：数据库异常，需用户介入。
-- `warnings` 非空：索引与语义检索当前不可用（如未配置 embedding 提供商），上传仍可用。
+- `warnings` 非空：索引与混合检索当前不可用（如未配置 embedding 提供商），上传仍可用。
 
 ---
 
@@ -73,7 +73,7 @@ Authorization: Bearer <token>
   "total": 11,
   "endpoints": [
     {"method": "PUT", "path": "/v1/sessions", "summary": "上传/更新会话（按 agent/machine/source_id 三元组幂等 upsert）"},
-    {"method": "POST", "path": "/v1/search", "summary": "向量语义搜索会话（活跃 embedding 模型的向量空间）"},
+    {"method": "POST", "path": "/v1/search", "summary": "混合检索会话（语义向量 + FTS5 词法 BM25，Session 级 RRF 融合）"},
     ...
   ],
   "hint": "对任意接口附加 ?help=1 查看该接口的详细说明（参数/返回/示例/错误）"
@@ -155,7 +155,7 @@ PUT /v1/sessions
 - `created_at`/`updated_at`/`ts` 均为毫秒时间戳，**取源数据时间**，不要用上传时刻。
 - 索引是异步的：上传成功即返回，向量稍后在后台补齐（见 `GET /v1/stats` 的 `unindexed`）。
 
-### 场景：语义搜索历史会话
+### 场景：混合检索历史会话
 
 ```text
 # 1. 查用法
@@ -163,14 +163,18 @@ POST /v1/search?help=1
 
 # 2. 执行
 POST /v1/search
-{"query": "上周修的那个登录超时问题", "top_k": 5}
-→ {"model": "bge-m3", "provider": "…", "results": [{"session": {…}, "distance": 0.18, "snippets": [{"message_idx": 3, "role": "assistant", "text": "…", "ts": …, "source": "reasoning", "distance": 0.18}]}]}
+{"query": "no-negative-echo 这个约束回显方案", "top_k": 5}
+→ {"model": "bge-m3", "provider": "…", "results": [{"session": {…}, "score": 0.0311, "distance": 0.18, "matched_by": ["dense", "lexical"], "snippets": [{"message_idx": 3, "role": "assistant", "text": "…", "ts": …, "source": "reasoning", "distance": 0.18, "matched_by": ["dense"]}]}]}
 ```
 
-`results` 按距离升序；`snippets` 是命中**切片**（chunk），可快速定位上下文。索引粒度是切片级：
-正文（`source="text"`，取自消息 `text`）与思考（`source="reasoning"`，从消息 `raw` 抽取）分别切片，
-同一命中消息可能返回多个切片；`text` 截断至 500 字符。可带 `filters`
-（agent/machine/source_id/时间范围/title）缩小范围，字段同 `GET /v1/sessions`。
+双通道检索：dense（向量语义 KNN）+ lexical（FTS5 trigram BM25，覆盖分支名/函数名/错误码/
+路径片段等精确标识符），各自聚合为会话排名后按 RRF 融合，`results` 按 `score` 降序；
+`matched_by` 标明命中通道。`distance` 保留 dense 通道最佳 L2 距离仅作参考
+（lexical-only 会话为 `null`）。`snippets` 是命中切片（chunk），可快速定位上下文，双路命中的
+同一切片只返回一条并合并通道标记。索引粒度是切片级：正文（`source="text"`，取自消息 `text`）
+与思考（`source="reasoning"`，从消息 `raw` 抽取）分别切片，同一命中消息可能返回多个切片；
+`text` 截断至 500 字符。可带 `filters`（agent/machine/source_id/时间范围/title）缩小范围，
+对两条通道同时生效。不足 3 字符的查询词不产生词法命中，短串请走 grep。
 
 ### 场景：关键词检索（grep 式子串匹配）
 
@@ -183,8 +187,8 @@ GET /v1/grep?q=E_ROLLBACK&agent=opencode&limit=20
 → {"total": 12, "limit": 20, "offset": 0, "items": [{"session": {…}, "hits": [{"message_idx": 3, "role": "user", "ts": …, "snippet": "…", "match_start": 42}]}]}
 ```
 
-按**字面子串**匹配消息正文，不依赖 embedding 提供商——语义检索 503 时仍可用；适合精确词
-（错误码、函数名、文件路径）。默认大小写不敏感（仅 ASCII 折叠），`case_sensitive=1` 敏感；
+按**字面子串**匹配消息正文，不依赖 embedding 提供商——混合检索 503 时仍可用；适合精确词
+（错误码、函数名、文件路径）与不足 3 字符的短串。默认大小写不敏感（仅 ASCII 折叠），`case_sensitive=1` 敏感；
 `%`/`_`/`\` 按字面匹配而非通配符。可与 agent/machine/source_id/时间范围/title 过滤组合；
 `total` 为命中消息总数（分页按消息行计），`hits[].match_start` 是命中在 snippet 内的偏移。
 

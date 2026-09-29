@@ -41,7 +41,8 @@ export const Route = createFileRoute("/search")({
 interface NormalizedHit {
   session: { id: string; agent: string; machine: string; source_id: string; title: string | null; updated_at: number };
   distance: number | null;
-  lines: Array<{ message_idx: number; role: string; text: string; source: "text" | "reasoning" }>;
+  matched_by: string[];
+  lines: Array<{ message_idx: number; role: string; text: string; source: "text" | "reasoning"; matched_by: string[] }>;
 }
 
 interface NormalizedResult {
@@ -128,11 +129,13 @@ function SearchPage() {
           items: res.items.map((hit) => ({
             session: hit.session,
             distance: null,
+            matched_by: [],
             lines: hit.hits.map((h) => ({
               message_idx: h.message_idx,
               role: h.role,
               text: h.snippet,
               source: "text" as const,
+              matched_by: [],
             })),
           })),
         };
@@ -149,11 +152,13 @@ function SearchPage() {
         items: res.results.map((hit) => ({
           session: hit.session,
           distance: hit.distance,
+          matched_by: hit.matched_by,
           lines: hit.snippets.map((sn) => ({
             message_idx: sn.message_idx,
             role: sn.role,
             text: sn.text,
             source: sn.source,
+            matched_by: sn.matched_by,
           })),
         })),
       };
@@ -212,8 +217,8 @@ function SearchPage() {
   return (
     <Page className="mx-auto w-full max-w-3xl">
       <PageHeader
-        title={keyword ? "关键词检索" : "语义检索"}
-        description={keyword ? "对话内容字面子串匹配（LIKE 扫描，不依赖 embedding）" : "跨机器、跨 Agent 的对话内容向量检索"}
+        title={keyword ? "关键词检索" : "混合检索"}
+        description={keyword ? "对话内容字面子串匹配（LIKE 扫描，不依赖 embedding）" : "语义向量 + 词法 BM25 双通道，Session 级 RRF 融合"}
       />
       <form
         onSubmit={(e) => {
@@ -250,7 +255,7 @@ function SearchPage() {
               aria-pressed={!keyword}
             >
               <SparklesIcon className="size-3.5" />
-              语义
+              混合
             </button>
             <button
               type="button"
@@ -409,7 +414,7 @@ function SearchPage() {
                 )}
               </div>
               <p className="text-sm text-muted-foreground">
-                {keyword ? "输入关键词，按字面子串匹配消息正文（错误码、函数名、路径）" : "输入自然语言描述，按语义定位历史会话与消息片段"}
+                {keyword ? "输入关键词，按字面子串匹配消息正文（错误码、函数名、路径）" : "自然语言 + 标识符混合描述，语义与字面双通道定位历史会话"}
               </p>
             </CardContent>
           </Card>
@@ -423,7 +428,7 @@ function SearchPage() {
         ) : result.isLoading || !data ? (
           <div className="flex h-32 items-center justify-center gap-2 text-sm text-muted-foreground">
             <Spinner className="size-5" />
-            <span>{keyword ? "关键词扫描中…" : "向量检索中…"}</span>
+            <span>{keyword ? "关键词扫描中…" : "混合检索中…"}</span>
           </div>
         ) : data.items.length === 0 ? (
           <Card className="border-dashed">
@@ -447,8 +452,13 @@ function SearchPage() {
                     >
                       {hit.session.title ?? hit.session.source_id}
                     </Link>
+                    {hit.matched_by.length > 0 ? (
+                      <Badge variant={hit.matched_by.length === 2 ? "success" : "muted"}>
+                        {hit.matched_by.map((ch) => (ch === "dense" ? "语义" : "词法")).join(" + ")}
+                      </Badge>
+                    ) : null}
                     {hit.distance !== null ? (
-                      <Badge variant={hit.distance < 0.8 ? "success" : hit.distance < 1.1 ? "muted" : "outline"}>
+                      <Badge variant="outline" title="dense 通道最佳距离，仅供参考">
                         距离 {formatDistance(hit.distance)}
                       </Badge>
                     ) : null}
@@ -482,6 +492,11 @@ function SearchPage() {
                           >
                             {line.source === "reasoning" ? "思考" : "正文"}
                           </span>
+                          {line.matched_by.includes("lexical") ? (
+                            <span className="rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                              {line.matched_by.length === 2 ? "双路" : "词法"}
+                            </span>
+                          ) : null}
                         </div>
                         <p className="min-w-0 flex-1 break-words text-muted-foreground">{line.text}</p>
                       </div>

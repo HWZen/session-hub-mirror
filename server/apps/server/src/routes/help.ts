@@ -204,13 +204,13 @@ export const endpoints: EndpointHelp[] = [
   {
     method: "POST",
     path: "/v1/search",
-    summary: "向量语义搜索会话（活跃 embedding 模型的向量空间）",
+    summary: "混合检索会话（语义向量 + FTS5 词法 BM25，Session 级 RRF 融合）",
     description:
-      "语义检索主入口：在活跃 embedding 模型的向量空间内检索会话，返回会话级结果与命中切片，按距离升序；可用 filters 缩小范围。无可用 embedding 提供商时返回 503，可退回 /v1/grep 做关键词检索。\n\n建库逻辑：上传成功即返回，会话在后台异步建立向量索引（进度看 GET /v1/stats 的 indexed/unindexed）。每条消息索引两类内容：正文（messages.text）与思考（从消息 raw 中 type=reasoning 的 part 抽取），各自切成约 1200 字符的切片，相邻切片带 180 字符重叠；会话首个切片前会拼上会话标题，因此按标题搜索也能命中；工作目录、agent、机器等其余元数据不进入向量空间。向量由活跃模型（权重最高且已启用的提供商）计算，按模型分表存储，切换活跃模型后需对全库重建索引。\n\n检索执行：查询词经同一活跃模型向量化，对全库切片做 KNN 近邻（候选约 top_k×50、上限 1024 切片），再按会话聚合——会话距离取其全部切片中的最优值，每会话最多返回 5 条命中切片（各 ≤500 字符，source 标明来自正文 text 还是思考 reasoning）。distance 为 L2 欧氏距离，越小越相关（0 为完全一致）；绝对值随模型而变、不可跨模型比较，可用相邻结果间的距离断层判断相关边界——相关结果与噪声之间通常有明显落差。\n\n搜索词构建：用自然语言具体描述症状、主题或需求，越具体越好——带上会话中出现过的报错原文、命令、功能名等词显著提升命中；两三个词的短语会得到发散结果。不要把项目名、文件路径放进查询：路径、agent、机器等元数据不参与向量索引，放进查询只会引入噪声、稀释真正的内容词。语义检索匹配「意思相近」而非字面包含，找错误码、函数名、分支名等精确标识符请改走 /v1/grep。\n\n参数建议：top_k 默认 10，实测数百会话规模下相关结果通常集中在前几名、其后距离进入噪声平台期；表述模糊或想扩大召回时建议 20~30，并配合 filters 收窄范围，比单纯加大 top_k 更有效。单次查询耗时主要取决于 embedding 推理（提供商冷启动时明显变慢），与库规模关系不大。",
+      "检索主入口：同时跑两条检索通道并按会话融合。dense 通道在活跃 embedding 模型的向量空间做 KNN 语义检索；lexical 通道用 SQLite FTS5（trigram tokenizer + BM25）做字面词法检索，对分支名、函数名、错误码、路径片段、罕见标识符等精确字符串的召回明显优于纯语义通道。两通道各自聚合为会话排名后用 Reciprocal Rank Fusion（RRF，k=60，等权）融合，按融合分数降序返回；两路都命中的会话获得稳定提升。无可用 embedding 提供商时返回 503（lexical 不单独降级），可退回 /v1/grep 做精确子串检索。\n\n建库逻辑：上传成功即返回，会话在后台异步建立向量索引（进度看 GET /v1/stats 的 indexed/unindexed）。每条消息索引两类内容：正文（messages.text）与思考（从消息 raw 中 type=reasoning 的 part 抽取），各自切成约 1200 字符的切片，相邻切片带 180 字符重叠；会话首个切片前会拼上会话标题。词法索引与向量索引共用同一套切片（message_chunks），上传/重建会话时由触发器自动同步，无需额外操作；工作目录、agent、机器等其余元数据不进入索引。向量由活跃模型计算并按模型分表，切换活跃模型后需全库重建向量；词法索引与模型无关，不受影响。\n\n检索执行：dense 通道对全库切片做 KNN 近邻（候选约 top_k×50、上限 1024 切片）；lexical 通道把查询词切成 Unicode 三元组（trigram，含中文，不做分词），转成 OR 连接的短语查询（总数上限 128，超出等距采样）后走 BM25 检索（候选量级同 dense）。两通道都先按会话聚合——会话排名取其最佳切片排名，各向融合层提供最多 min(max(top_k×5,50),200) 个会话；每会话最多返回 5 条命中切片（各 ≤500 字符，source 标明来自正文 text 还是思考 reasoning），双路命中的同一切片只返回一条并合并通道标记。结果字段 score 为 RRF 融合分数，越大越相关；distance 保留 dense 通道的最佳 L2 距离仅作参考（lexical-only 命中的会话为 null），不再是排序依据；matched_by 标明命中通道（dense/lexical）。不足 3 字符的查询词不产生词法命中（trigram 需要 ≥3 字符），此时仅 dense 生效，1~2 字符的精确查询请走 /v1/grep。\n\n搜索词构建：用自然语言具体描述症状、主题或需求（dense 友好），同时带上会话中出现过的报错原文、命令、功能名、分支名等精确标识符（lexical 友好），混合查询效果最好。路径、agent、机器等元数据不参与索引，放进查询只会引入噪声。语义上「意思相近」由 dense 覆盖，字面包含由 lexical 覆盖；需要确认某字面串确实出现过（且串长可能不足 3 字符）时仍用 /v1/grep。\n\n参数建议：top_k 默认 10，实测数百会话规模下相关结果通常集中在前几名；表述模糊或想扩大召回时建议 20~30，并配合 filters 收窄范围。单次查询耗时主要取决于 embedding 推理（提供商冷启动时明显变慢），与库规模关系不大。",
     params: bodyParams(searchRequestSchema, {
-      query: "自然语言查询，1..8000 字符；具体描述症状/主题/术语，比两三个词的短查询命中好得多",
+      query: "查询词，1..8000 字符；自然语言 + 精确标识符混合效果最好",
       top_k: "返回会话数（按会话去重后计），1..50，默认 10；表述模糊或要扩大召回时建议 20~30",
-      filters: "过滤条件，字段同 GET /v1/sessions 的过滤参数（agent/machine/source_id/时间范围）",
+      filters: "过滤条件，字段同 GET /v1/sessions 的过滤参数（agent/machine/source_id/时间范围），对两条通道同时生效",
     }),
     returns: [
       { name: "model", type: "string", desc: "实际使用的 embedding 模型" },
@@ -218,10 +218,10 @@ export const endpoints: EndpointHelp[] = [
       {
         name: "results",
         type: "object[]",
-        desc: "{ session, distance, snippets } 按距离升序；snippets 为命中切片（≤500 字符，每会话最多 5 条）：{ message_idx, role, text, ts, source, distance }，source 为 text（正文）｜reasoning（思考）",
+        desc: "{ session, score, distance, matched_by, snippets } 按 RRF 分数降序。score 为融合分数（越大越相关）；distance 为 dense 通道最佳 L2 距离（lexical-only 会话为 null，仅供参考）；matched_by 为命中通道数组（dense/lexical）；snippets 为命中切片（≤500 字符，每会话最多 5 条）：{ message_idx, role, text, ts, source, distance, matched_by }",
       },
     ],
-    example: { query: "上周修的那个登录超时问题", top_k: 5 },
+    example: { query: "no-negative-echo 这个约束回显方案", top_k: 5 },
     errors: [
       BAD_JSON,
       { status: 400, message: "invalid body（附 zod issues）", recoverable: true },
@@ -234,7 +234,7 @@ export const endpoints: EndpointHelp[] = [
     path: "/v1/grep",
     summary: "关键词子串检索消息正文（LIKE 扫描，字面匹配，不依赖 embedding）",
     description:
-      "关键词字面子串检索（LIKE 扫描），不依赖 embedding，是语义检索 503 时的退路。检索范围是全部会话的消息正文（messages.text）；消息 raw 与思考切片不参与 grep，思考内容只能通过 /v1/search 语义检索命中。适合精确词（错误码、函数名、文件路径）；LIKE 通配符按字面处理，默认仅 ASCII 大小写折叠。结果按会话更新时间倒序分组，每会话最多 5 条命中快照（各 ≤500 字符，含命中点前约 120 字符上下文），分页按命中消息行计。",
+      "关键词字面子串检索（LIKE 扫描），不依赖 embedding，是混合检索 503 时的退路。检索范围是全部会话的消息正文（messages.text）；消息 raw 与思考切片不参与 grep，思考内容只能通过 /v1/search 检索命中。适合精确词（错误码、函数名、文件路径）与不足 3 字符的短串（trigram 词法通道的下限之外）；LIKE 通配符按字面处理，默认仅 ASCII 大小写折叠。结果按会话更新时间倒序分组，每会话最多 5 条命中快照（各 ≤500 字符，含命中点前约 120 字符上下文），分页按命中消息行计。",
     params: queryParams(grepRequestSchema, {
       q: "关键词子串，1..256 字符；%/_/\\ 按字面匹配",
       case_sensitive: "1 开启大小写敏感（默认否；仅 ASCII 折叠）",
