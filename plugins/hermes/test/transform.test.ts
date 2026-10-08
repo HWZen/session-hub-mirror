@@ -74,9 +74,27 @@ describe("transformSession", () => {
     });
     expect(result.messages[2]).toEqual({
       role: "tool",
-      text: "查詢結果",
-      raw: { type: "tool", text: "查詢結果", tool_name: "search", tool_call_id: "call-1" },
+      raw: { type: "tool", tool_name: "search", tool_call_id: "call-1" },
     });
+    expect(result.messages[2]!.text).toBeUndefined();
+  });
+
+  it("keeps tool output out of text so non-full API responses hide tool calls", () => {
+    const result = transformSession(
+      SESSION,
+      [
+        message("u1", "user", "问题"),
+        message("t1", "tool", "工具产出正文", { tool_name: "terminal", tool_call_id: "c1" }),
+        message("a1", "assistant", "回答"),
+      ],
+      "machine-test",
+    );
+    const toolMessage = result.messages.find((entry) => entry.role === "tool");
+    expect(toolMessage).toBeDefined();
+    expect(toolMessage!.text).toBeUndefined();
+    expect(toolMessage!.raw).toEqual({ type: "tool", tool_name: "terminal", tool_call_id: "c1" });
+    const assistant = result.messages.find((entry) => entry.role === "assistant");
+    expect(assistant!.text).toBe("回答");
   });
 
   it("preserves other roles and filters only session_meta", () => {
