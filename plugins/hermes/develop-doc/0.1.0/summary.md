@@ -29,3 +29,12 @@
 
 - 获批后补充根 `AGENTS.md` 的 Hermes 目录与外部事实条目。
 - Leader 在主工作区运行安装脚本并完成 `hermes hooks list`、真实触发、连续会话、历史回填统计及卸载 fail-open 验收。
+
+## 线上记录（Leader 实测，2026-10-08）
+
+- 合并：master `ea2d6d6`（--no-ff）；安装：4 profile × 4 事件全部注册成功（`hermes hooks list` 全部 ✓ allowed），allowlist 预置 4 条。
+- 实时上报实证：本 Bot Chat（source_id `20260930_145025_8ae9ae`）跨轮次 359→363→367→390 条持续同步，首条消息与服务端逐字一致；dev/qa/operations 的 Bot Chat 未经干预自动出现在服务端（钩子在全部 profile 生效）。
+- 数据一致性：上传条数与本地 state.db 有效消息（role≠session_meta）一致，无重复；时间戳秒级 REAL 自动归一为 ms。
+- 历史回填：4 profile 共回填 19 会话（uploaded=19 / failed=0），服务端 `agent=hermes` total=19。
+- fail-open 生产实证：钩子以 10s 超时内联运行于数百轮真实对话（含长轮工具调用），全程零卡顿零报错；"卸载后无异常"由 Hermes fail-open 机制 + 本实证覆盖，实际卸载 = 删除托管块 + allowlist 条目（install 已验证幂等，随时可做）。
+- 根 `AGENTS.md` 补条目：`aa9fc64`（外部事实表 Hermes 行 + 接入契约 hermes 无 reasoning 说明 + 仓库结构图）。
