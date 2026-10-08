@@ -106,12 +106,12 @@ export function transformSession(
   const transformedMessages: TransformedMessage[] = selected.map((message) => {
     const role = message.role.slice(0, 64);
     const isTool = message.role === "tool";
-    // tool 消息：产出只放 raw（仅 /full 接口可见），不设 text——非全量接口与 Web 列表不显示工具调用
-    const text = !isTool && typeof message.content === "string"
+    const contentText = typeof message.content === "string"
       ? truncateText(message.content, MAX_TEXT_LENGTH)
       : undefined;
-    const transformed: TransformedMessage = { role, raw: messageRaw(message, text) };
-    if (text !== undefined) transformed.text = text;
+    const transformed: TransformedMessage = { role, raw: messageRaw(message, contentText) };
+    // tool 消息：顶层不设 text（非全量接口与 Web 列表不显示），产出保留在 raw 的 toolPart.text（/full 可见）
+    if (!isTool && contentText !== undefined) transformed.text = contentText;
     return transformed;
   });
   if (trimmed && transformedMessages.length > 0) {

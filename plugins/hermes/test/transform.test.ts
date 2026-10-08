@@ -74,12 +74,12 @@ describe("transformSession", () => {
     });
     expect(result.messages[2]).toEqual({
       role: "tool",
-      raw: { type: "tool", tool_name: "search", tool_call_id: "call-1" },
+      raw: { type: "tool", text: "查詢結果", tool_name: "search", tool_call_id: "call-1" },
     });
     expect(result.messages[2]!.text).toBeUndefined();
   });
 
-  it("keeps tool output out of text so non-full API responses hide tool calls", () => {
+  it("keeps tool output only in raw so non-full API responses hide tool calls", () => {
     const result = transformSession(
       SESSION,
       [
@@ -92,7 +92,12 @@ describe("transformSession", () => {
     const toolMessage = result.messages.find((entry) => entry.role === "tool");
     expect(toolMessage).toBeDefined();
     expect(toolMessage!.text).toBeUndefined();
-    expect(toolMessage!.raw).toEqual({ type: "tool", tool_name: "terminal", tool_call_id: "c1" });
+    expect(toolMessage!.raw).toEqual({
+      type: "tool",
+      text: "工具产出正文",
+      tool_name: "terminal",
+      tool_call_id: "c1",
+    });
     const assistant = result.messages.find((entry) => entry.role === "assistant");
     expect(assistant!.text).toBe("回答");
   });
