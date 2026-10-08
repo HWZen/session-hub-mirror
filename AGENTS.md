@@ -1,4 +1,4 @@
-# AGENTS.md — 给在本仓库工作的 AI Agent
+﻿# AGENTS.md — 给在本仓库工作的 AI Agent
 
 ## 项目是什么
 
@@ -69,6 +69,7 @@ server/               # 服务端子系统
   develop-doc/<版本号>/#   服务端每个需求一档：plan.md（规划）+ summary.md（完成记录）
   data/               #   运行时数据（db、模型缓存、日志，gitignore）
 skills/session-hub/   # Agent Skill（SKILL.md：教外部 Agent 直调 HTTP API；接口动态发现不固化）
+plugins/hermes/      # Hermes Shell hooks 插件（0.1.0：post_api_request+会话终结实时上报 + state.db 回填）
 plugins/opencode/     # opencode 官方插件（TS，事件钩子上传；未建）
 apps/collector/       # 采集器子系统（WorkBuddy hook 适配器已建；豆包适配器待建）
 docs/                 # 运行手册（后期）
@@ -81,6 +82,7 @@ docs/                 # 运行手册（后期）
 | opencode | `~/.local/share/opencode/opencode.db`（SQLite） | 插件钩子实时；直读 DB 兜底/回填 |
 | WorkBuddy | `~/.workbuddy/projects/*/*.jsonl` | **hook 实时推送为主**（Stop/SessionEnd → `apps/collector` 适配器）；文件直读兜底/回填；用户输入在 `<user_query>` 标签内，过滤 `<system-reminder`；title 首选行内 `aiTitle` |
 | 豆包 | `%LOCALAPPDATA%\Doubao\User Data\Default\IndexedDB\chrome_doubao-chat_0.indexeddb.leveldb` | **实验性**；文件被锁，必须先复制再解析；独立模块可整体停用 |
+| Hermes | `<profile>/state.db`（SQLite，多 profile：default / dev / qa / operations；CLI/Gateway/Desktop 全端写入） | **Shell hooks 实时**（`plugins/hermes`：`post_api_request` + 3 个会话终结事件，60s 节流 + detached worker）；state.db 只读直读兜底/回填 |
 
 采集器对源文件**只读**；所有源会话带 `agent`/`machine`/`source_id` 三元组做幂等 upsert；
 时间戳取源数据时间（创建 + 最后修改），不用上传时间。
@@ -99,8 +101,9 @@ docs/                 # 运行手册（后期）
   WorkBuddy 是 OpenAI Responses 风格（`input_text` / `output_text` + 独立 `reasoning` 行，无 role，
   需采集器自行挂到消息 raw 并归一成 `{type:"reasoning", text}`）。
 - 思考仅提供加密/摘要而无明文时，适配器需评估其索引价值并记录（无明文则跳过）。
+- Hermes 无逐消息 reasoning 持久化（仅 tokens 统计）→ 不产出 reasoning part，属合法"无明文跳过"场景。
 - 现有实现参考：`server/apps/server/src/indexing/raw-extract.ts`（归一化）、
-  `plugins/opencode`、`plugins/zcode`、`apps/collector`。
+  `plugins/opencode`、`plugins/zcode`、`plugins/hermes`、`apps/collector`。
 
 ## Embedding 提供商链
 
