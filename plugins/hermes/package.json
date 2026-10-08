@@ -1,0 +1,15 @@
+{
+  "name": "@session-hub/hermes-plugin",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "node scripts/build.mjs",
+    "backfill": "node dist/backfill.js"
+  },
+  "devDependencies": {
+    "better-sqlite3": "^13.0.3",
+    "esbuild": "^0.28.2"
+  }
+}
