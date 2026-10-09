@@ -86,6 +86,7 @@
 - `session/event` 在事件进入内存日志后同步通知，但持久化异步；每轮 `turn/end` 后由异步队列调用 `ctx.sessions.flush(session)` 建立持久屏障，再以 `ctx.sessionPersistence.open(id, "read")` 读取完整快照并上报
 - Host 动态包沙箱无 Node `require`、全局 `fetch` 与 Node timers；`ctx.web.fetch` 仅支持 GET，不能上传会话。插件通过已启用的 `ctx.subprocess` seam 启动 `node -e` sidecar，payload/token 只走 stdin，由 sidecar 执行 HTTP PUT；所有具体方法在开发时以安装版静态源码与运行时 inspection 双重确认
 - 采集路线：`plugins/dsh` Host-only 插件实时全量 upsert；会话事件全量保存在消息 `raw`，明文 reasoning 归一为顶层 `{type:"reasoning", text}` part
+- 配置来源（2026-10-09 定）：DSH 0.2.0-rc.2 没有能填写第三方插件 Config 的界面（Host 投影 `unsupported`；插件无 client 半则插件页行无「配置」按钮；Settings 插件页只读；`dsh plugin` 只转发 pnpm）→ Cordis Config 仅作显式覆盖，`baseUrl`/`token`/`machine` 缺省从本机共享配置 `~/.config/session-hub/config.json` 读取，`machine` 再以 `os.hostname()` 兜底；token 不入库、不进日志、不写 profile patch
 - 当前 DSH JSONL persistence 无删除/保留接口且不会删除会话文件，archive 不等于源删除；0.1.0 无可靠删除信号可镜像，若后续 DSH 暴露持久删除事件再补 DELETE 同步
 
 ### 自托管环境
