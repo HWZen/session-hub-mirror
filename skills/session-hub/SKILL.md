@@ -14,7 +14,7 @@ description: 操作 Session Hub 个人会话档案库：上传/更新会话、�
 
 | 项 | 值 |
 |----|------|
-| API 基址 | 默认 `http://127.0.0.1:7428`；NAS/远程部署时以用户提供为准 |
+| API 基址 | 参考config |
 | 认证头 | `Authorization: Bearer <token>`（`/v1/*` 全部需要；`/health` 免认证） |
 | 内容类型 | `Content-Type: application/json` |
 
@@ -28,9 +28,10 @@ description: 操作 Session Hub 个人会话档案库：上传/更新会话、�
 
 ```json
 {
-  "base_url": "http://127.0.0.1:7428",
+  "base_url": "http://example.server.url:7428",
   "token": "..."
 }
+```
 ```
 
 - **已有 base_url 和 token**：先用 `GET /health` 探活；`200` 即可用，跳到第 2 节。
