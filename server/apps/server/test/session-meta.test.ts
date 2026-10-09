@@ -20,24 +20,25 @@ function meta(overrides: Partial<SessionRecord> = {}): SessionRecord {
 }
 
 describe("buildSessionMetaHeader", () => {
-  it("includes all five fields in a stable format", () => {
-    expect(buildSessionMetaHeader(meta())).toBe(
-      "会话元数据：标题=debug session；Agent=opencode；机器=WORKSTATION-A；源会话ID=src-1；工作目录=D:/work/app",
-    );
+  it("returns the title alone", () => {
+    expect(buildSessionMetaHeader(meta())).toBe("debug session");
   });
 
-  it("omits null or blank title and cwd", () => {
-    expect(buildSessionMetaHeader(meta({ title: null, cwd: null }))).toBe(
-      "会话元数据：Agent=opencode；机器=WORKSTATION-A；源会话ID=src-1",
-    );
-    expect(buildSessionMetaHeader(meta({ title: "   ", cwd: "\t" }))).toBe(
-      "会话元数据：Agent=opencode；机器=WORKSTATION-A；源会话ID=src-1",
-    );
+  it("ignores agent, machine, source_id and cwd", () => {
+    expect(
+      buildSessionMetaHeader(
+        meta({ agent: "workbuddy", machine: "OTHER", source_id: "src-2", cwd: "C:/somewhere/else" }),
+      ),
+    ).toBe("debug session");
   });
 
-  it("trims title and cwd", () => {
-    expect(buildSessionMetaHeader(meta({ title: "  t  ", cwd: " c " }))).toBe(
-      "会话元数据：标题=t；Agent=opencode；机器=WORKSTATION-A；源会话ID=src-1；工作目录=c",
-    );
+  it("returns an empty string for null or blank title", () => {
+    expect(buildSessionMetaHeader(meta({ title: null }))).toBe("");
+    expect(buildSessionMetaHeader(meta({ title: "   " }))).toBe("");
+    expect(buildSessionMetaHeader(meta({ title: "\t\n" }))).toBe("");
+  });
+
+  it("trims the title", () => {
+    expect(buildSessionMetaHeader(meta({ title: "  t  " }))).toBe("t");
   });
 });

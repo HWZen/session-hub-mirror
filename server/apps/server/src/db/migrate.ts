@@ -169,6 +169,14 @@ const MIGRATIONS: ReadonlyArray<{ name: string; up: (db: SqliteDatabase) => void
       db.exec("UPDATE sessions SET indexed_at = NULL, indexed_model = NULL");
     },
   },
+  {
+    name: "0006_meta_title_only",
+    up: (db) => {
+      db.exec("DELETE FROM message_chunks");
+      dropChunkEmbeddingsTables(db);
+      db.exec("UPDATE sessions SET indexed_at = NULL, indexed_model = NULL");
+    },
+  },
 ];
 
 export function migrate(db: SqliteDatabase): void {

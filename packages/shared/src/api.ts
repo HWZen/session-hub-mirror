@@ -35,7 +35,7 @@ export interface HealthStatus {
   ok: boolean;
   version: string;
   warnings: string[];
-  db: { ok: boolean; journal_mode: string };
+  db: { ok: boolean; journal_mode: string; size_bytes: number };
   embedding: {
     current: string | null;
     model: string;

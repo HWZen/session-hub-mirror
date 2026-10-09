@@ -45,7 +45,7 @@ describe("SessionIndexer chunk numbering", () => {
 });
 
 describe("SessionIndexer session meta header", () => {
-  it("prepends the meta header only to the first chunk's embedding input, storing raw chunk texts", async () => {
+  it("prepends only the title to the first chunk's embedding input, storing raw chunk texts", async () => {
     const provider = new RecordingEmbedProvider("fake");
     const { app, db, settleIndexing } = buildApp(TEST_TOKEN, [provider]);
     const longText = Array.from({ length: 80 }, (_, i) => `line ${i} of a long first message`).join("\n");
@@ -64,18 +64,39 @@ describe("SessionIndexer session meta header", () => {
     expect(provider.inputs).toHaveLength(1);
     const inputs = provider.inputs[0]!;
     expect(inputs.length).toBeGreaterThan(1);
-    const header = "会话元数据：标题=release notes；Agent=opencode；机器=M-16；源会话ID=meta-first；工作目录=D:/work/app";
     for (const input of inputs.slice(1)) {
-      expect(input.startsWith("会话元数据：")).toBe(false);
+      expect(input.startsWith("release notes\n")).toBe(false);
     }
 
     const chunks = db
       .prepare("SELECT text FROM message_chunks ORDER BY id")
       .all() as Array<{ text: string }>;
     expect(chunks.length).toBe(inputs.length);
-    expect(inputs[0]).toBe(`${header}\n${chunks[0]!.text}`);
+    expect(inputs[0]).toBe(`release notes\n${chunks[0]!.text}`);
     for (const chunk of chunks) {
-      expect(chunk.text.includes("会话元数据：")).toBe(false);
+      expect(chunk.text.includes("release notes")).toBe(false);
     }
+  });
+
+  it("keeps the first chunk's embedding input raw when the title is blank", async () => {
+    const provider = new RecordingEmbedProvider("fake");
+    const { app, db, settleIndexing } = buildApp(TEST_TOKEN, [provider]);
+    const longText = Array.from({ length: 80 }, (_, i) => `line ${i} of a long first message`).join("\n");
+    await putSession(
+      app,
+      sessionBody({
+        machine: "M-16",
+        source_id: "meta-blank",
+        title: "   ",
+        messages: [{ role: "user", text: longText, ts: 1 }],
+      }),
+    );
+    await settleIndexing();
+
+    const inputs = provider.inputs[0]!;
+    const chunks = db
+      .prepare("SELECT text FROM message_chunks ORDER BY id")
+      .all() as Array<{ text: string }>;
+    expect(inputs[0]).toBe(chunks[0]!.text);
   });
 });
