@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Session Hub DSH 会话采集",
+    "description": "将 DSH 持久会话安全镜像到 Session Hub。"
+  }
+}

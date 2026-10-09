@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Session Hub DSH Session Collector",
+    "description": "Mirror persistent DSH sessions to Session Hub."
+  }
+}
