@@ -59,7 +59,7 @@
 | 插件构建 | `node node_modules/esbuild/bin/esbuild plugins/dsh/src/index.ts --bundle --format=esm --platform=node --target=node20 --packages=bundle --outfile=plugins/dsh/dist/index.js`（与 `scripts/build.mjs` 同参数） | 成功，`dist/index.js` 743.0 kB |
 | 构建产物自检 | `.verify/dist-check.mjs`（临时脚本，已删除） | exports `Config,apply,inject`；`inject=["sessions","sessionPersistence","subprocess","timer","fs"]`；产物无 `__require`；保留 `import("node:os")`；从产物里抽出的 `sidecarMain` 实跑返回 `{"ok":true,"text":"WORKSTATION-B"}` |
 | 官方 `npm run build`（Lead 复跑） | worktree 根 | **退出码 0，全绿** |
-| 官方 `npm test`（Lead 复跑） | worktree 根，47 文件 / 337 例 | 首轮 **2 例失败**（均在 `sidecar.test.ts`，见下）；修复后本地 shim 81/81，**官方 337/337 待 Lead 复跑确认** |
+| 官方 `npm test`（Lead 复跑） | worktree 根 | 首轮 47 文件 / 337 例 **2 例失败**（均在 `sidecar.test.ts`，见下）；修复后 Lead 复跑 **47 文件 / 339 例全部通过，退出码 0** |
 | 官方 `npm test` / `npm run build`（本会话沙箱内） | worktree 根 | `Error: spawn EPERM`（vitest 加载 `vitest.config.ts` 时 esbuild 服务子进程被沙箱拦截；build 前序 typecheck 全过、卡在 dsh 插件构建）。仅记录，未改任何配置 |
 
 ### 首轮官方 `npm test` 的 2 例失败与修复（shim 未暴露，官方 vitest 才是权威判据）
@@ -85,8 +85,8 @@
 
 ## 5. 验收标准对照（`plan.md` 1–8）
 
-- **8（我的部分）**：单测 81/81 通过（含首轮官方 `npm test` 暴露的 2 例修复）、typecheck 通过、构建产物有效；官方 `npm run build` 已由 Lead 复跑为**退出码 0**；官方 `npm test` 首轮 2 例失败已修复、**337/337 待 Lead 复跑确认**（见 §3），`install_bundle` / `list_plugins` 由 Lead 执行。
-- **1–7**：均为真机项，由 Lead 在重装 bundle 并重启 DSH 后执行：不做任何 DSH 配置即激活并上传（`machine` 应为 `WORKSTATION-B`）、续轮幂等、重启回填不重复、无配置时 fail-open、显式 Config 覆盖共享配置、工具只进 `raw` / reasoning 可搜 / fork 与 subagent 独立会话、禁用后停止上传。
+- **8（我的部分）**：单测 81/81 通过（含首轮官方 `npm test` 暴露的 2 例修复）、typecheck 通过、构建产物有效；官方 `npm run build` 与 `npm test`（47 文件 / 339 例）均已由 Lead 复跑为**退出码 0 / 全绿**（见 §3）。
+- **1–7**：真机项已由 Lead 在重启 DSH 后完成，结果见 `develop-doc/0.1.1/acceptance.md`（16/16 回填无重复、续轮幂等、工具只进 `raw`、reasoning 可搜索命中、fork/subagent 独立会话、禁用后 0 上传、恢复启用后 25 秒内回填）。
 
 ## 6. 遗留事项
 
