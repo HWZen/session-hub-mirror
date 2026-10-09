@@ -1,14 +1,18 @@
 {
   "name": "@session-hub/claude-code-plugin",
-  "private": true,
   "version": "0.1.0",
+  "description": "Claude Code session collector plugin for Session Hub",
+  "main": "dist/hook.js",
   "type": "module",
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "node scripts/build.mjs",
-    "backfill": "node dist/backfill.js"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
+  "dependencies": {},
   "devDependencies": {
-    "esbuild": "^0.28.2"
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0"
   }
 }

@@ -1,0 +1,1 @@
+{"hooks": {"UserPromptSubmit": [{"matcher": {"command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/hook.js\""}, "hooks": [{"type": "stdin"}]}], "Stop": [{"matcher": {"command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/hook.js\""}, "hooks": [{"type": "stdin"}]}], "SessionEnd": [{"matcher": {"command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/hook.js\""}, "hooks": [{"type": "stdin"}]}}}

@@ -74,6 +74,7 @@ skills/session-hub/   # Agent Skill（SKILL.md：教外部 Agent 直调 HTTP API
 plugins/hermes/      # Hermes Shell hooks 插件（0.1.0：post_api_request+会话终结实时上报 + state.db 回填）
 plugins/opencode/     # opencode 官方插件（TS，事件钩子上传；未建）
 plugins/dsh/          # DSH Cordis Host bundle（TS 构建 ESM，持久 SessionEvent 镜像）
+plugins/claude-code/  # Claude Code 采集插件（0.1.0：hook 实时上报 + 历史回填）
 apps/collector/       # 采集器子系统（WorkBuddy hook 适配器已建；豆包适配器待建）
 docs/                 # 运行手册（后期）
 ```
@@ -87,6 +88,7 @@ docs/                 # 运行手册（后期）
 | 豆包 | `%LOCALAPPDATA%\Doubao\User Data\Default\IndexedDB\chrome_doubao-chat_0.indexeddb.leveldb` | **实验性**；文件被锁，必须先复制再解析；独立模块可整体停用 |
 | Hermes | `<profile>/state.db`（SQLite，多 profile：default / dev / qa / operations；CLI/Gateway/Desktop 全端写入） | **Shell hooks 实时**（`plugins/hermes`：`post_api_request` + 3 个会话终结事件，60s 节流 + detached worker）；state.db 只读直读兜底/回填 |
 | DSH | DSH profile 的持久 SessionEvent 日志（普通/fork/subagent 均独立 session id） | Cordis Host bundle 监听 `turn/end` / `session/title`，以 per-session flush + read 幂等 upsert；HTTP PUT 通过官方 `subprocess` Node sidecar，仅 stdin 传 payload/token；配置来源为 Cordis Config → 本机共享配置 `~/.config/session-hub/config.json` → `os.hostname()`；不解析压缩文件、不直改 profile |
+| Claude Code | `~/.claude/projects/<cwd转义>/<sessionId>.jsonl` | **hook 实时**（`plugins/claude-code`：`UserPromptSubmit` / `Stop` / `SessionEnd` 事件 hook，读实时转写文件）；历史回填 `~/.claude/projects/**/*.jsonl` |
 
 采集器对源文件**只读**；所有源会话带 `agent`/`machine`/`source_id` 三元组做幂等 upsert；
 时间戳取源数据时间（创建 + 最后修改），不用上传时间。
