@@ -1,26 +1,40 @@
 import { z } from "zod";
 
 export const Config = z.object({
-  baseUrl: z.string().max(2_048).optional().default(""),
-  token: z.string().max(8_192).optional().default(""),
-  machine: z.string().max(128).optional().default(""),
+  baseUrl: z.string().max(2_048).optional(),
+  token: z.string().max(8_192).optional(),
+  machine: z.string().max(128).optional(),
   timeoutMs: z.number().int().min(1).max(2_147_483_647).default(15_000),
-  workerCwd: z.string().max(4_096).optional().default(""),
+  workerCwd: z.string().max(4_096).optional(),
   reconcileOnStart: z.boolean().default(true),
   concurrency: z.number().int().min(1).max(4).default(2),
 });
 
 export type RawPluginConfig = z.input<typeof Config>;
 
+export interface ExplicitPluginConfig {
+  baseUrl: string | undefined;
+  token: string | undefined;
+  machine: string | undefined;
+  timeoutMs: number;
+  workerCwd: string | undefined;
+  reconcileOnStart: boolean;
+  concurrency: number;
+}
+
 export interface DshPluginConfig {
   baseUrl: string;
   token: string;
   machine: string;
   timeoutMs: number;
-  workerCwd: string;
+  workerCwd: string | undefined;
   reconcileOnStart: boolean;
   concurrency: number;
 }
+
+export type ExplicitConfigResult =
+  | { ok: true; config: ExplicitPluginConfig }
+  | { ok: false; category: "configuration_invalid" };
 
 export function isAbsoluteWorkerCwd(value: string): boolean {
   return value.startsWith("/")
@@ -28,7 +42,7 @@ export function isAbsoluteWorkerCwd(value: string): boolean {
     || /^\\\\[^\\/]+[\\/][^\\/]+/.test(value);
 }
 
-function normalizeBaseUrl(value: string): string | null {
+export function normalizeBaseUrl(value: string): string | null {
   const trimmed = value.trim();
   const match = /^(https?):\/\/([^/?#\s]+)(?:\/[^?#]*)?\/?$/i.exec(trimmed);
   if (!match) return null;
@@ -51,21 +65,36 @@ function normalizeBaseUrl(value: string): string | null {
   return trimmed.replace(/\/+$/, "");
 }
 
-export function parsePluginConfig(raw: unknown): DshPluginConfig | null {
+export function parseExplicitConfig(raw: unknown): ExplicitConfigResult {
   const result = Config.safeParse(raw ?? {});
-  if (!result.success) return null;
+  if (!result.success) return { ok: false, category: "configuration_invalid" };
   const parsed = result.data;
-  const baseUrl = normalizeBaseUrl(parsed.baseUrl);
-  if (!baseUrl || !parsed.token.trim() || !parsed.machine.trim() || !isAbsoluteWorkerCwd(parsed.workerCwd)) {
-    return null;
+
+  const baseUrlValue = parsed.baseUrl?.trim() ?? "";
+  const workerCwdValue = parsed.workerCwd?.trim() ?? "";
+  const tokenValue = parsed.token?.trim() ?? "";
+  const machineValue = parsed.machine?.trim() ?? "";
+
+  let baseUrl: string | undefined;
+  if (baseUrlValue.length > 0) {
+    const normalized = normalizeBaseUrl(baseUrlValue);
+    if (normalized === null) return { ok: false, category: "configuration_invalid" };
+    baseUrl = normalized;
   }
+  if (workerCwdValue.length > 0 && !isAbsoluteWorkerCwd(workerCwdValue)) {
+    return { ok: false, category: "configuration_invalid" };
+  }
+
   return {
-    baseUrl,
-    token: parsed.token.trim(),
-    machine: parsed.machine.trim(),
-    timeoutMs: parsed.timeoutMs,
-    workerCwd: parsed.workerCwd,
-    reconcileOnStart: parsed.reconcileOnStart,
-    concurrency: parsed.concurrency,
+    ok: true,
+    config: {
+      baseUrl,
+      token: tokenValue.length > 0 ? tokenValue : undefined,
+      machine: machineValue.length > 0 ? machineValue : undefined,
+      timeoutMs: parsed.timeoutMs,
+      workerCwd: workerCwdValue.length > 0 ? workerCwdValue : undefined,
+      reconcileOnStart: parsed.reconcileOnStart,
+      concurrency: parsed.concurrency,
+    },
   };
 }

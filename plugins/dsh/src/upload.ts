@@ -88,13 +88,13 @@ export async function uploadSession(
   try {
     handle = subprocess.spawn({
       argv: [node, "-e", UPLOADER_CODE],
-      cwd: config.workerCwd,
       stdio: {
         stdin: { data: stdinData },
         stdout: { maxBytes: CAPTURE_LIMIT_BYTES },
         stderr: { maxBytes: CAPTURE_LIMIT_BYTES },
       },
       graceMs: 3_000,
+      ...(config.workerCwd === undefined ? {} : { cwd: config.workerCwd }),
     });
   } catch {
     throw new UploadError("worker_start", { retryable: true });

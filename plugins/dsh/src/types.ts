@@ -99,7 +99,7 @@ export interface DshSubprocessService {
   resolveExecutable(name: "node"): Promise<string>;
   spawn(options: {
     argv: string[];
-    cwd: string;
+    cwd?: string;
     stdio: {
       stdin: { data: string };
       stdout: { maxBytes: number };
@@ -107,6 +107,17 @@ export interface DshSubprocessService {
     };
     graceMs: number;
   }): DshSubprocessHandle;
+}
+
+export interface DshFsTarget {
+  readonly targetKey: unknown;
+  readonly displayPath: string;
+}
+
+export interface DshFsService {
+  resolve(path: string, options?: { cwd?: string }): Promise<DshFsTarget>;
+  processPath(target: DshFsTarget): string;
+  readText(target: DshFsTarget): Promise<string>;
 }
 
 export interface RetryScheduler {

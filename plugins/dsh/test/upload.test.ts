@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { parsePluginConfig } from "../src/config.js";
+import type { DshPluginConfig } from "../src/config.js";
 import { uploadSession, UploadError, UPLOADER_CODE, MAX_PAYLOAD_BYTES } from "../src/upload.js";
 import { uploaderMain } from "../src/uploader-sidecar.js";
 import type { DshHubSession, DshSubprocessService, SubprocessCapturedOutput } from "../src/types.js";
@@ -13,15 +13,15 @@ const payload: DshHubSession = {
   updated_at: 200,
   messages: [{ role: "user", text: "secret conversation text", raw: [{ type: "text", text: "secret conversation text" }] }],
 };
-const config = parsePluginConfig({
-  baseUrl: "http://127.0.0.1:7428/",
+const config: DshPluginConfig = {
+  baseUrl: "http://127.0.0.1:7428",
   token: secretToken,
   machine: "machine",
   timeoutMs: 1_000,
   workerCwd: "D:\\session-hub\\plugins\\dsh",
   reconcileOnStart: false,
   concurrency: 1,
-})!;
+};
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -127,6 +127,14 @@ describe("uploadSession", () => {
     expect(UPLOADER_CODE).not.toMatch(/response\.(?:text|json|arrayBuffer)\s*\(/);
     expect(UPLOADER_CODE).not.toContain("process.stderr");
     expect(UPLOADER_CODE).not.toContain("console.");
+  });
+
+  it("omits cwd entirely when no worker directory was configured", async () => {
+    const { service, spawnOptions } = subprocessFor(capture('{"ok":true,"status":200}\n'));
+    await uploadSession(service, { ...config, workerCwd: undefined }, payload);
+
+    const options = spawnOptions[0] as Record<string, unknown>;
+    expect(options).not.toHaveProperty("cwd");
   });
 
   it("rejects raw payloads over the byte limit before starting a worker", async () => {

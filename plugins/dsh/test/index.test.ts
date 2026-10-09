@@ -1,6 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import { apply } from "../src/index.js";
-import type { DshLiveSession, DshSessionEvent, DshSessionHeader, DshSessionPersistence, DshSessionsService } from "../src/types.js";
+import type {
+  DshFsService,
+  DshFsTarget,
+  DshLiveSession,
+  DshSessionEvent,
+  DshSessionHeader,
+  DshSessionPersistence,
+  DshSessionsService,
+} from "../src/types.js";
 
 const header: DshSessionHeader = { id: "session-1", createdAt: 1_700_000_000_000 };
 const session: DshLiveSession = { id: header.id };
@@ -8,6 +16,17 @@ const events: DshSessionEvent[] = [
   { type: "user/message", seq: 0, time: 1_700_000_000_100, data: { content: "hello" } },
   { type: "turn/end", seq: 1, time: 1_700_000_000_200, data: {} },
 ];
+
+const fsTarget: DshFsTarget = { targetKey: "target", displayPath: "C:\\work" };
+
+function fsService(overrides: Partial<DshFsService> = {}): DshFsService {
+  return {
+    resolve: async () => fsTarget,
+    processPath: () => "C:\\work",
+    readText: async () => "{}",
+    ...overrides,
+  };
+}
 
 function configured(reconcileOnStart = false) {
   return {
@@ -98,6 +117,7 @@ describe("Cordis Host apply", () => {
           };
         },
       },
+      fs: fsService(),
       logger: { info: vi.fn(), warn: vi.fn() },
       timeout: () => () => {},
       on: (_name, callback) => {
@@ -114,6 +134,7 @@ describe("Cordis Host apply", () => {
     };
 
     apply(context, configured());
+    await vi.waitFor(() => { expect(listener).toBeDefined(); });
     const savedListener = listener!;
     savedListener(session, events[1]!);
     expect(order).toEqual([]);
@@ -163,6 +184,7 @@ describe("Cordis Host apply", () => {
           };
         },
       },
+      fs: fsService(),
       logger: { info: vi.fn(), warn: vi.fn() },
       timeout: () => () => {},
       on: () => () => {},
@@ -216,6 +238,7 @@ describe("Cordis Host apply", () => {
           };
         },
       },
+      fs: fsService(),
       logger: { info: vi.fn(), warn: vi.fn() },
       timeout: () => () => {},
       on: (_name, callback) => { listener = callback; return () => { listener = undefined; }; },
@@ -223,6 +246,7 @@ describe("Cordis Host apply", () => {
     };
 
     apply(context, configured());
+    await vi.waitFor(() => { expect(listener).toBeDefined(); });
     listener!(session, titleEvent);
     expect(order).toEqual([]);
     await workerStarted.promise;
@@ -272,6 +296,7 @@ describe("Cordis Host apply", () => {
           };
         },
       },
+      fs: fsService(),
       logger: { info: vi.fn(), warn: vi.fn() },
       timeout: (callback, delayMs) => {
         const cancel = timers.schedule(callback, delayMs);
@@ -313,6 +338,7 @@ describe("Cordis Host apply", () => {
         open: async () => { throw new Error("unused"); },
       },
       subprocess: { resolveExecutable: async () => "node.exe", spawn: () => { throw new Error("unused"); } },
+      fs: fsService(),
       logger: { info: vi.fn(), warn: vi.fn() },
       timeout: (callback, delayMs) => {
         const cancel = timers.schedule(callback, delayMs);
@@ -332,20 +358,51 @@ describe("Cordis Host apply", () => {
     expect(listCalls).toBe(1);
   });
 
-  it("registers nothing when required configuration is missing", () => {
+  it("registers no session listener and fails open when required configuration is missing", async () => {
     const on = vi.fn(() => () => {});
-    const effect = vi.fn(() => () => {});
+    const warn = vi.fn();
     const context: Parameters<typeof apply>[0] = {
       sessions: { get: () => undefined, flush: async () => true },
       sessionPersistence: { list: async () => [], open: async () => { throw new Error("unused"); } },
       subprocess: { resolveExecutable: async () => "node", spawn: () => { throw new Error("unused"); } },
+      fs: fsService({ resolve: async () => { throw new Error("FS_NOT_FOUND"); } }),
+      logger: { info: vi.fn(), warn },
+      timeout: () => () => {},
+      on,
+      effect: () => () => {},
+    };
+
+    apply(context, {});
+    await vi.waitFor(() => {
+      expect(warn.mock.calls.map((call) => String(call[0]))).toContain("dsh-session-hub: inactive category=configuration_required");
+    });
+
+    expect(on).not.toHaveBeenCalled();
+    const messages = warn.mock.calls.map((call) => String(call[0]));
+    expect(messages).toContain("dsh-session-hub: shared-config category=shared_config_unreadable");
+    expect(messages.join("\n")).not.toContain("private-token");
+  });
+
+  it("does not register a listener when the fiber is disposed while configuration resolves", async () => {
+    const on = vi.fn(() => () => {});
+    const gate = deferred();
+    let cleanup: (() => void | Promise<void>) | undefined;
+    const context: Parameters<typeof apply>[0] = {
+      sessions: { get: () => undefined, flush: async () => true },
+      sessionPersistence: { list: async () => [], open: async () => { throw new Error("unused"); } },
+      subprocess: { resolveExecutable: async () => "node", spawn: () => { throw new Error("unused"); } },
+      fs: fsService({ readText: async () => { await gate.promise; return "{}"; } }),
       logger: { info: vi.fn(), warn: vi.fn() },
       timeout: () => () => {},
       on,
-      effect,
+      effect: (factory) => { cleanup = factory(); return () => { void cleanup?.(); }; },
     };
+
     apply(context, {});
+    await cleanup?.();
+    gate.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
     expect(on).not.toHaveBeenCalled();
-    expect(effect).not.toHaveBeenCalled();
   });
 });

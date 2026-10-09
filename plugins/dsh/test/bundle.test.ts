@@ -16,13 +16,19 @@ const patch = readFileSync(join(packageRoot, "cordis.patch.yml"), "utf8");
 describe("DSH Cordis bundle", () => {
   it("exports the built host entry and declares its package patch", () => {
     expect(manifest.name).toBe("@session-hub/dsh-plugin");
-    expect(manifest.version).toBe("0.1.0");
+    expect(manifest.version).toBe("0.1.1");
     expect(manifest.exports["."]).toBe("./dist/index.js");
     expect(manifest.dsh.bundle.patch).toBe("./cordis.patch.yml");
     expect(manifest.files).toEqual(expect.arrayContaining(["dist/index.js", "cordis.patch.yml", "locale/*.json"]));
     expect(patch).toContain("name: '@session-hub/dsh-plugin'");
     expect(patch).toContain("disabled: true");
     expect(patch).not.toMatch(/token|authorization|secret/i);
+  });
+
+  it("keeps the bundle patch free of deployment values so activation relies on the shared config", () => {
+    expect(patch).not.toMatch(/baseUrl/i);
+    expect(patch).not.toMatch(/machine/i);
+    expect(patch).not.toMatch(/https?:\/\//i);
   });
 
   it("keeps both locale files in the bundle package", () => {
