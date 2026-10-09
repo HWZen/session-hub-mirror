@@ -8,8 +8,10 @@ Session Hub：跨端跨 Agent 的个人会话档案库 + 检索层。只做"存�
 
 ## 开发 SOP（需求 → 计划 → 开发 → 提交）
 
-版本号唯一事实源：**各子系统的 `package.json` 的 `version`**（当前只有服务端子系统：`server/package.json`；
-子包与根编排 package.json 的 version 不维护；`/health` 与前端展示服务端版本）。
+版本号唯一事实源：各子系统与独立插件各自 `package.json` 的 `version`（如 `server/package.json`、
+`apps/collector/package.json`、`plugins/opencode/package.json`、`plugins/zcode/package.json`、
+`plugins/hermes/package.json`、`plugins/dsh/package.json`）；根编排 `package.json` 的 version 不维护；
+`/health` 与前端只展示服务端版本。
 每个新需求占一个版本号，档案落在**所属子系统**的 `develop-doc/<版本号>/`
 （并行开发时规划、开发、提交均在对应 worktree 内执行，见"并行开发（worktree 工作流）"）：
 
@@ -70,6 +72,7 @@ server/               # 服务端子系统
   data/               #   运行时数据（db、模型缓存、日志，gitignore）
 skills/session-hub/   # Agent Skill（SKILL.md：教外部 Agent 直调 HTTP API；接口动态发现不固化）
 plugins/opencode/     # opencode 官方插件（TS，事件钩子上传；未建）
+plugins/dsh/          # DSH Cordis Host bundle（TS 构建 ESM，持久 SessionEvent 镜像）
 apps/collector/       # 采集器子系统（WorkBuddy hook 适配器已建；豆包适配器待建）
 docs/                 # 运行手册（后期）
 ```
@@ -81,6 +84,7 @@ docs/                 # 运行手册（后期）
 | opencode | `~/.local/share/opencode/opencode.db`（SQLite） | 插件钩子实时；直读 DB 兜底/回填 |
 | WorkBuddy | `~/.workbuddy/projects/*/*.jsonl` | **hook 实时推送为主**（Stop/SessionEnd → `apps/collector` 适配器）；文件直读兜底/回填；用户输入在 `<user_query>` 标签内，过滤 `<system-reminder`；title 首选行内 `aiTitle` |
 | 豆包 | `%LOCALAPPDATA%\Doubao\User Data\Default\IndexedDB\chrome_doubao-chat_0.indexeddb.leveldb` | **实验性**；文件被锁，必须先复制再解析；独立模块可整体停用 |
+| DSH | DSH profile 的持久 SessionEvent 日志（普通/fork/subagent 均独立 session id） | Cordis Host bundle 监听 `turn/end` / `session/title`，以 per-session flush + read 幂等 upsert；HTTP PUT 通过官方 `subprocess` Node sidecar，仅 stdin 传 payload/token；不解析压缩文件、不直改 profile |
 
 采集器对源文件**只读**；所有源会话带 `agent`/`machine`/`source_id` 三元组做幂等 upsert；
 时间戳取源数据时间（创建 + 最后修改），不用上传时间。
@@ -100,7 +104,7 @@ docs/                 # 运行手册（后期）
   需采集器自行挂到消息 raw 并归一成 `{type:"reasoning", text}`）。
 - 思考仅提供加密/摘要而无明文时，适配器需评估其索引价值并记录（无明文则跳过）。
 - 现有实现参考：`server/apps/server/src/indexing/raw-extract.ts`（归一化）、
-  `plugins/opencode`、`plugins/zcode`、`apps/collector`。
+  `plugins/opencode`、`plugins/zcode`、`plugins/hermes`、`plugins/dsh`、`apps/collector`。
 
 ## Embedding 提供商链
 

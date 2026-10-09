@@ -45,7 +45,7 @@
 | 向量提供商 | **配置文件驱动**；优先级链：5070Ti(frp) → 4070Ti(frp) → 云端(待填，可走 new-api 网关)；**不再内置本地 CPU 兜底**（2026-09-05 变更：服务器 i3+16G 跑不动 fp32 bge-m3，实测峰值 20G+ 内存）；本地推理服务（Ollama/llama.cpp 等）如需要，按普通 OpenAI 兼容 provider 配置即可 | 健康检查 + 自动降级；降级只换"谁在算"，不换"算什么"（候选集限同模型，见"向量模型"行）；未配置任何可用提供商时 health 返回警告、索引/搜索报错，不静默兜底；Web 设置页可编辑（配地址/密钥/模型/权重/开关/超时），写 `config/providers.local.json`（gitignore，优先于样例文件），保存即热更新 |
 | 技术栈 | TypeScript / Node.js（唯一语言）+ Hono + SQLite + sqlite-vec | **不用 Docker**；Caddy + NSSM 属 P4 公网化（暂缓），当前 WSL1 内手动启动、无开机自启 |
 | 端范围 | 多台 Windows PC；手机不做；网页端/非 Agent 数据不做 | |
-| v1 信息源 | opencode（钩子）、WorkBuddy（hook 实时推送，2026-09-08 变更）、豆包（实验性）、zcode（钩子+回填，2026-09-06 增） | |
+| v1 信息源 | opencode（钩子）、WorkBuddy（hook 实时推送，2026-09-08 变更）、豆包（实验性）、zcode（钩子+回填，2026-09-06 增）、Hermes（Shell hooks + state.db 回填）、DSH（Cordis Host 插件监听持久会话事件，2026-10-08 增） | |
 | opencode 历史回填 | 做（本机已有 117 会话） | |
 | 更新/删除策略 | 跟随本地：本地改动/删除即同步（镜像语义），待实现时再细化 | |
 | 时效性 | 钩子源准实时；轮询源分钟级 | |
@@ -79,6 +79,14 @@
 - hook：声明式插件（`.zcode-plugin/plugin.json` + hooks/hooks.json，本地目录 marketplace 注册，插件 hook 自动启用）；7 个事件（SessionStart/UserPromptSubmit/PreToolUse/PermissionRequest/PostToolUse/PostToolUseFailure/Stop），无 SessionEnd；hook 同步内联执行，上报必须 spawn detached 后立即 exit 0
 - **实测教训**：hook payload 的 `transcript_path` 临时文件不可靠（仅 UserPromptSubmit 时刻有内容，其余 0 字节且用后即清）——实时采集数据源用 db.sqlite 直读，不依赖 transcript
 - 采集路线：**Stop hook 逐轮全量 upsert**（服务端 upsert 本就是整体替换语义）+ 直读 db.sqlite 的历史回填；插件档 `plugins/zcode/develop-doc/0.1.0/plan.md`
+
+### DSH ✅
+- 会话权威数据源是 `ctx.sessionPersistence` 暴露的逻辑 `SessionEvent` 流；当前 JSONL 后端默认使用 Zstandard 压缩且支持格式迁移，采集插件不得绕过服务直读物理文件
+- 官方持久扩展方式是 Cordis Host bundle：工作区内编写包，通过 `plugin_manager install_bundle` 安装到 profile；不得手改 profile 的 `package.json` / `cordis.patch.yml`
+- `session/event` 在事件进入内存日志后同步通知，但持久化异步；每轮 `turn/end` 后由异步队列调用 `ctx.sessions.flush(session)` 建立持久屏障，再以 `ctx.sessionPersistence.open(id, "read")` 读取完整快照并上报
+- Host 动态包沙箱无 Node `require`、全局 `fetch` 与 Node timers；`ctx.web.fetch` 仅支持 GET，不能上传会话。插件通过已启用的 `ctx.subprocess` seam 启动 `node -e` sidecar，payload/token 只走 stdin，由 sidecar 执行 HTTP PUT；所有具体方法在开发时以安装版静态源码与运行时 inspection 双重确认
+- 采集路线：`plugins/dsh` Host-only 插件实时全量 upsert；会话事件全量保存在消息 `raw`，明文 reasoning 归一为顶层 `{type:"reasoning", text}` part
+- 当前 DSH JSONL persistence 无删除/保留接口且不会删除会话文件，archive 不等于源删除；0.1.0 无可靠删除信号可镜像，若后续 DSH 暴露持久删除事件再补 DELETE 同步
 
 ### 自托管环境
 

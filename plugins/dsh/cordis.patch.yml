@@ -1,0 +1,8 @@
+- insert:
+    - id: session-hub-dsh
+      name: '@session-hub/dsh-plugin'
+      disabled: true
+      config:
+        timeoutMs: 15000
+        reconcileOnStart: true
+        concurrency: 2
