@@ -1,1 +1,44 @@
-{"hooks": {"UserPromptSubmit": [{"matcher": {"command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/hook.js\""}, "hooks": [{"type": "stdin"}]}], "Stop": [{"matcher": {"command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/hook.js\""}, "hooks": [{"type": "stdin"}]}], "SessionEnd": [{"matcher": {"command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/hook.js\""}, "hooks": [{"type": "stdin"}]}}}
+{
+  "description": "Claude Code session collector hooks for Session Hub",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "process",
+            "command": "node",
+            "args": ["dist/hook.js"],
+            "timeoutMs": 10000
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "process",
+            "command": "node",
+            "args": ["dist/hook.js"],
+            "timeoutMs": 10000
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "process",
+            "command": "node",
+            "args": ["dist/hook.js"],
+            "timeoutMs": 10000
+          }
+        ]
+      }
+    ]
+  }
+}
