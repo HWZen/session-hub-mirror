@@ -1,20 +1,33 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { SIDECAR_CODE, runSidecar } from "../src/sidecar.js";
+import { isAbsoluteWorkerCwd } from "../src/config.js";
+import { SIDECAR_CODE, runSidecar, sidecarMain } from "../src/sidecar.js";
 import type { DshSubprocessService, SubprocessCapturedOutput } from "../src/types.js";
 
 const secretToken = "secret-test-token";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
-function stubSidecarProcess(input: string): string[] {
+function captureSidecarRun(input: string): string[] {
   const output: string[] = [];
-  vi.stubGlobal("process", {
-    stdin: (async function* () { yield Buffer.from(input); })(),
-    stdout: { write: (chunk: string) => { output.push(chunk); return true; } },
-  });
+  vi.spyOn(process, "stdin", "get").mockReturnValue(
+    (async function* () { yield Buffer.from(input); })() as unknown as typeof process.stdin,
+  );
+  vi.spyOn(process.stdout, "write").mockImplementation(((chunk: string | Uint8Array) => {
+    output.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
+    return true;
+  }) as typeof process.stdout.write);
   return output;
+}
+
+function parseStatus(output: string[]): { ok: boolean; text?: string; category?: string } {
+  return JSON.parse(output.join("").trim()) as { ok: boolean; text?: string; category?: string };
 }
 
 function capture(text: string, overrides: Partial<SubprocessCapturedOutput> = {}): SubprocessCapturedOutput {
@@ -42,43 +55,70 @@ function subprocessFor(
   return { service, spawnOptions };
 }
 
-describe("generated sidecar code", () => {
+describe("sidecarMain probe", () => {
   it("answers a hostname probe with a single status object", async () => {
-    const output = stubSidecarProcess(JSON.stringify({ op: "hostname" }));
-    const generated = new Function(`return ${SIDECAR_CODE}`) as () => Promise<void>;
+    const output = captureSidecarRun(JSON.stringify({ op: "hostname" }));
+    await sidecarMain();
 
-    await generated();
-    vi.unstubAllGlobals();
-
-    const parsed = JSON.parse(output.join("").trim()) as { ok: boolean; text: string };
+    const parsed = parseStatus(output);
     expect(parsed.ok).toBe(true);
-    expect(parsed.text.length).toBeGreaterThan(0);
+    expect(parsed.text!.length).toBeGreaterThan(0);
+  });
+
+  it("resolves an absolute home directory for the shared config path", async () => {
+    const output = captureSidecarRun(JSON.stringify({ op: "home" }));
+    await sidecarMain();
+
+    const parsed = parseStatus(output);
+    expect(parsed.ok).toBe(true);
+    expect(isAbsoluteWorkerCwd(parsed.text!)).toBe(true);
   });
 
   it("reads a text file handed over on stdin", async () => {
     const testFilePath = fileURLToPath(import.meta.url);
     const expected = readFileSync(testFilePath, "utf8");
-    const output = stubSidecarProcess(JSON.stringify({ op: "read-text", path: testFilePath, expandHome: false }));
-    const generated = new Function(`return ${SIDECAR_CODE}`) as () => Promise<void>;
+    const output = captureSidecarRun(JSON.stringify({ op: "read-text", path: testFilePath, expandHome: false }));
+    await sidecarMain();
 
-    await generated();
-    vi.unstubAllGlobals();
+    expect(parseStatus(output)).toEqual({ ok: true, text: expected });
+  });
 
-    expect(JSON.parse(output.join("").trim())).toEqual({ ok: true, text: expected });
+  it("expands a tilde path against the home directory", async () => {
+    const sharedConfigPath = join(homedir(), ".config", "session-hub", "config.json");
+    const output = captureSidecarRun(JSON.stringify({
+      op: "read-text",
+      path: "~/.config/session-hub/config.json",
+      expandHome: true,
+    }));
+    await sidecarMain();
+
+    const parsed = parseStatus(output);
+    if (existsSync(sharedConfigPath)) {
+      expect(parsed.ok).toBe(true);
+      expect(parsed.text!.length).toBe(readFileSync(sharedConfigPath, "utf8").length);
+    } else {
+      expect(parsed).toEqual({ ok: false, category: "sidecar_failed" });
+    }
   });
 
   it("reports failures and unknown operations as categories without leaking paths", async () => {
-    const missing = stubSidecarProcess(JSON.stringify({ op: "read-text", path: "C:\\definitely\\missing.json", expandHome: false }));
-    const generated = new Function(`return ${SIDECAR_CODE}`) as () => Promise<void>;
-    await generated();
-    vi.unstubAllGlobals();
-    expect(JSON.parse(missing.join("").trim())).toEqual({ ok: false, category: "sidecar_failed" });
+    const missing = captureSidecarRun(JSON.stringify({ op: "read-text", path: "C:\\definitely\\missing.json", expandHome: false }));
+    await sidecarMain();
+    expect(parseStatus(missing)).toEqual({ ok: false, category: "sidecar_failed" });
 
-    const unknown = stubSidecarProcess(JSON.stringify({ op: "delete-everything" }));
-    const generatedAgain = new Function(`return ${SIDECAR_CODE}`) as () => Promise<void>;
-    await generatedAgain();
-    vi.unstubAllGlobals();
-    expect(JSON.parse(unknown.join("").trim())).toEqual({ ok: false, category: "sidecar_bad_request" });
+    const unknown = captureSidecarRun(JSON.stringify({ op: "delete-everything" }));
+    await sidecarMain();
+    expect(parseStatus(unknown)).toEqual({ ok: false, category: "sidecar_bad_request" });
+  });
+
+  it("generates self-contained code that parses without referencing module scope", () => {
+    expect(() => new Function(`return ${SIDECAR_CODE}`)).not.toThrow();
+    expect(SIDECAR_CODE).toContain("node:os");
+    expect(SIDECAR_CODE).toContain("node:fs");
+    expect(SIDECAR_CODE).toContain("hostname");
+    expect(SIDECAR_CODE).not.toContain("console.");
+    expect(SIDECAR_CODE).not.toContain("process.stderr");
+    expect(SIDECAR_CODE).not.toContain("__require");
   });
 });
 
@@ -152,15 +192,5 @@ describe("runSidecar", () => {
     };
     expect(await runSidecar(unspawnable, { op: "home" }, undefined))
       .toEqual({ ok: false, text: "", category: "sidecar_start" });
-  });
-
-  it("generates self-contained code that parses without referencing module scope", () => {
-    expect(() => new Function(`return ${SIDECAR_CODE}`)).not.toThrow();
-    expect(SIDECAR_CODE).toContain("node:os");
-    expect(SIDECAR_CODE).toContain("node:fs");
-    expect(SIDECAR_CODE).toContain("hostname");
-    expect(SIDECAR_CODE).not.toContain("console.");
-    expect(SIDECAR_CODE).not.toContain("process.stderr");
-    expect(SIDECAR_CODE).not.toContain("__require");
   });
 });

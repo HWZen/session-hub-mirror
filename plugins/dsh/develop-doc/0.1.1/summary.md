@@ -55,17 +55,26 @@
 | 项 | 命令 | 结果 |
 |---|---|---|
 | 插件类型检查 | `npx tsc -p plugins/dsh/tsconfig.json --noEmit` | 通过（exit 0，无输出） |
-| 插件单测（9 文件 79 例） | 见下方"沙箱受限说明"的替代运行方式 | **79 passed / 0 failed** |
+| 插件单测（9 文件 81 例） | 见下方"沙箱受限说明"的替代运行方式 | **81 passed / 0 failed**（其中 `sidecar.test.ts` 10 例） |
 | 插件构建 | `node node_modules/esbuild/bin/esbuild plugins/dsh/src/index.ts --bundle --format=esm --platform=node --target=node20 --packages=bundle --outfile=plugins/dsh/dist/index.js`（与 `scripts/build.mjs` 同参数） | 成功，`dist/index.js` 743.0 kB |
 | 构建产物自检 | `.verify/dist-check.mjs`（临时脚本，已删除） | exports `Config,apply,inject`；`inject=["sessions","sessionPersistence","subprocess","timer","fs"]`；产物无 `__require`；保留 `import("node:os")`；从产物里抽出的 `sidecarMain` 实跑返回 `{"ok":true,"text":"WORKSTATION-B"}` |
-| 官方 `npm test` | worktree 根 | **失败：`Error: spawn EPERM`（vitest 加载 `vitest.config.ts` 时 esbuild 服务子进程被沙箱拦截）**，未跑到任何用例 |
-| 官方 `npm run build` | worktree 根 | **前序步骤全过**（`tsc -b` + opencode/zcode/hermes/collector/dsh typecheck），**在 `npm run build -w @session-hub/dsh-plugin`（`node scripts/build.mjs`）处失败：`Error: spawn EPERM`** |
+| 官方 `npm run build`（Lead 复跑） | worktree 根 | **退出码 0，全绿** |
+| 官方 `npm test`（Lead 复跑） | worktree 根，47 文件 / 337 例 | 首轮 **2 例失败**（均在 `sidecar.test.ts`，见下）；修复后本地 shim 81/81，**官方 337/337 待 Lead 复跑确认** |
+| 官方 `npm test` / `npm run build`（本会话沙箱内） | worktree 根 | `Error: spawn EPERM`（vitest 加载 `vitest.config.ts` 时 esbuild 服务子进程被沙箱拦截；build 前序 typecheck 全过、卡在 dsh 插件构建）。仅记录，未改任何配置 |
+
+### 首轮官方 `npm test` 的 2 例失败与修复（shim 未暴露，官方 vitest 才是权威判据）
+
+- 现象：`generated sidecar code > answers a hostname probe…` 断言 `parsed.ok === true` 实为 `false`；`…reads a text file handed over on stdin` 实为 `{"ok":false,"category":"sidecar_failed"}`。
+- 根因：这两例用 `new Function("return " + SIDECAR_CODE)()` 在**当前进程内**求值生成代码，而 0.1.1 的探针用 `await import("node:os")` / `await import("node:fs")`（为避开 esbuild 把 `require` 改写成 `__require`）；vitest 的模块运行器里，`new Function` 造出来的代码**没有动态 import 回调** → 抛错 → 被自己的 catch 归为 `sidecar_failed`。**生产路径无 bug**：Lead 用 `'{"op":"hostname"}' | node -e "<生成代码>"` 实测返回 `{"ok":true,"text":"WORKSTATION-B"}`、`home` 返回 `C:\Users\example-user`。
+- 修复（只改测试，未动生产代码的 import 策略）：删掉 `new Function` 求值，行为用例改为 `import { sidecarMain } from "../src/sidecar.js"` + `vi.spyOn(process, "stdin", "get")`（喂 async generator）+ `vi.spyOn(process.stdout, "write")`，直接对同一份源码断言 hostname / home / read-text / 错误分类；保留静态断言（`new Function` 可解析、自包含、含 `node:os`/`node:fs`、不含 `__require` / `console.` / `process.stderr`）。
+- 未采用"真实子进程跑生成代码"（Lead 的首选 A）：本会话沙箱下 `execFileSync(process.execPath, …, {input})` 与 `spawnSync` 实测均 `EPERM`（已复现），本地无法验证该写法；且真实 `node -e` 契约已由 Lead 实测确认。若需补 A，可在能启动子进程的环境外加。
+- 顺带加固：`~` 展开用例改为 "文件存在则断言读取成功且长度一致、否则断言 fail-open 分类"，且**不比较也不打印文件正文**（该文件含 token，避免失败时把密钥打进测试输出）。
 
 ### 沙箱受限说明（如实记录，未改测试配置绕过）
 
 本会话的文件沙箱禁止 Node 以管道 stdio 创建子进程（`child_process.spawn` 默认 `stdio:'pipe'` 直接 `EPERM`）。esbuild 的 JS API（`ensureServiceIsRunning`）和 vite/vitest 的配置打包都走这条路径，因此官方 `npm test` / `npm run build` 在本沙箱内无法启动；只有 esbuild 原生 CLI（bin shim 用 `execFileSync(..., {stdio:'inherit'})`）可用。**没有修改 `vitest.config.ts`、`scripts/build.mjs` 或任何测试配置**。
 
-替代验证方式（临时目录 `plugins/dsh/.verify/`，验证后已删除，未入库）：用一个最小 `describe/it/expect/vi` 兼容层（`--alias:vitest=…`）把**仓库里真实的 9 个 `*.test.ts`** 用 esbuild CLI 打包后逐个 `node` 执行，结果如上表（79/79）。`npm test` 的最终判定仍需在能启动 esbuild 服务的环境（Lead 侧）复跑。
+替代验证方式（临时目录 `plugins/dsh/.verify/`，验证后已删除，未入库）：用一个最小 `describe/it/expect/vi` 兼容层（`--alias:vitest=…`）把**仓库里真实的 9 个 `*.test.ts`** 用 esbuild CLI 打包后逐个 `node` 执行，结果如上表（81/81）。该方式与官方 vitest 的求值环境不同（首选轮已证明），**只作本地回归证据，最终判定以官方 `npm test` 为准**。
 
 ## 4. `ctx.fs` 可见性结论
 
@@ -76,7 +85,7 @@
 
 ## 5. 验收标准对照（`plan.md` 1–8）
 
-- **8（我的部分）**：单测 79/79 通过、typecheck 通过、构建产物有效；官方 `npm test` / `npm run build` 因沙箱 EPERM 未能在本会话复跑（见 §3），`install_bundle` / `list_plugins` 由 Lead 执行。
+- **8（我的部分）**：单测 81/81 通过（含首轮官方 `npm test` 暴露的 2 例修复）、typecheck 通过、构建产物有效；官方 `npm run build` 已由 Lead 复跑为**退出码 0**；官方 `npm test` 首轮 2 例失败已修复、**337/337 待 Lead 复跑确认**（见 §3），`install_bundle` / `list_plugins` 由 Lead 执行。
 - **1–7**：均为真机项，由 Lead 在重装 bundle 并重启 DSH 后执行：不做任何 DSH 配置即激活并上传（`machine` 应为 `WORKSTATION-B`）、续轮幂等、重启回填不重复、无配置时 fail-open、显式 Config 覆盖共享配置、工具只进 `raw` / reasoning 可搜 / fork 与 subagent 独立会话、禁用后停止上传。
 
 ## 6. 遗留事项
@@ -86,3 +95,4 @@
 3. **每次激活最多 2 次 node 探针 spawn**（home + hostname；共享配置给了 `machine` 时只剩 home）。若嫌激活延迟，可合并成一个 `op:"env"` 探针。
 4. 本机共享配置目前只有 `baseUrl` / `token` / `timeoutMs`，`machine` 走 `os.hostname()`；若要显式固定，可在该文件加 `machine` 字段（无需改插件）。
 5. `dist/index.js` 已用与 `scripts/build.mjs` 完全相同的参数重建，可供 Lead 直接重装；但**正式产物仍应以能跑 esbuild 服务的环境执行 `npm run build` 为准**。
+6. `sidecar.test.ts` 现采用进程内打桩（Lead 选项 B）；若要再覆盖"生成代码在真实子进程 `node -e` 中跑通"（选项 A），可另加 `execFileSync(process.execPath, ["-e", SIDECAR_CODE], { input })` 用例——本会话沙箱对 `execFileSync(..., {input})` 实测 `EPERM`，本地无法验证该写法。
