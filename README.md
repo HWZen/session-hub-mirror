@@ -109,8 +109,9 @@ npm run backfill -w @session-hub/opencode-plugin -- [--since <ms>] [--dry-run]
 `skills/session-hub/SKILL.md` 是外部 Agent 的操作手册：上传/更新会话、语义搜索、统计与补索引，接口动态发现（`GET /v1/help`），零 SDK 依赖。安装：
 
 1. 把 `skills/session-hub/` 整个目录复制（或软链）到目标 Agent 的技能目录，如 `~/.agents/skills/session-hub/`
-2. 目录需可写：Skill 会在 SKILL.md 同目录缓存 `config.json`（内容同第 1 步）；没有缓存时首次使用会向用户索取地址与 Token
+2. 目录需可写：Skill 会在 SKILL.md 同目录缓存 `config.json`（`{"base_url": "...", "token": "..."}`，可同时写 `baseUrl` 兼容）；没有缓存时首次使用会向用户索取地址与 Token
 3. 收到 401 说明 token 失效（服务端 `SH_AUTH_TOKEN` 已更换），向用户重新索取
+4. **DSH（Cordis Host）**：用户级技能根为 `~/.dsh/skills/<name>/`（rank 400；项目级为 `<repo>/.dsh/skills` 或 `<repo>/.agents/skills`），本机已装 `~/.dsh/skills/session-hub/`。该根只有在 profile 的 `@deepseek-ai/dsh-skill-filesystem` 条目启用时才会被扫描（`plugin_manager` 里 `set_plugin include:skill-filesystem enabled=true`）；根目录被监视，新增/改写 `SKILL.md` 无需重启即生效，升级时重新复制即可
 
 ### 第 6 步：验收（Agent 执行）
 

@@ -1,4 +1,4 @@
-﻿node_modules/
+node_modules/
 dist/
 *.tsbuildinfo
 .env
@@ -17,3 +17,5 @@ plugins/zcode/dist/
 plugins/hermes/dist/
 server/apps/web/src/routeTree.gen.ts
 .zcode/
+skills/*/config.json
+skills/*/config.json.*
