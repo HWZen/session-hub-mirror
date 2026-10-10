@@ -45,7 +45,7 @@
 | 向量提供商 | **配置文件驱动**；优先级链：5070Ti(frp) → 4070Ti(frp) → 云端(待填，可走 new-api 网关)；**不再内置本地 CPU 兜底**（2026-09-05 变更：服务器 i3+16G 跑不动 fp32 bge-m3，实测峰值 20G+ 内存）；本地推理服务（Ollama/llama.cpp 等）如需要，按普通 OpenAI 兼容 provider 配置即可 | 健康检查 + 自动降级；降级只换"谁在算"，不换"算什么"（候选集限同模型，见"向量模型"行）；未配置任何可用提供商时 health 返回警告、索引/搜索报错，不静默兜底；Web 设置页可编辑（配地址/密钥/模型/权重/开关/超时），写 `config/providers.local.json`（gitignore，优先于样例文件），保存即热更新 |
 | 技术栈 | TypeScript / Node.js（唯一语言）+ Hono + SQLite + sqlite-vec | **不用 Docker**；Caddy + NSSM 属 P4 公网化（暂缓），当前 WSL2 内 systemd 托管（`session-hub.service`，Windows 登录计划任务拉起 distro） |
 | 端范围 | 多台 Windows PC；手机不做；网页端/非 Agent 数据不做 | |
-| v1 信息源 | opencode（钩子）、WorkBuddy（hook 实时推送，2026-09-08 变更）、豆包（实验性）、zcode（钩子+回填，2026-09-06 增）、Hermes（Shell hooks + state.db 回填）、DSH（Cordis Host 插件监听持久会话事件，2026-10-08 增） | |
+| v1 信息源 | opencode（钩子）、WorkBuddy（hook 实时推送，2026-09-08 变更）、豆包（实验性）、zcode（钩子+回填，2026-09-06 增）、Hermes（Shell hooks + state.db 回填）、DSH（Cordis Host 插件监听持久会话事件，2026-10-08 增）、Claude Code（插件 hook + transcript_path 直读，2026-10-09 增） | |
 | opencode 历史回填 | 做（本机已有 117 会话） | |
 | 更新/删除策略 | 跟随本地：本地改动/删除即同步（镜像语义），待实现时再细化 | |
 | 时效性 | 钩子源准实时；轮询源分钟级 | |
@@ -88,6 +88,20 @@
 - 采集路线：`plugins/dsh` Host-only 插件实时全量 upsert；会话事件全量保存在消息 `raw`，明文 reasoning 归一为顶层 `{type:"reasoning", text}` part
 - 配置来源（2026-10-09 定）：DSH 0.2.0-rc.2 没有能填写第三方插件 Config 的界面（Host 投影 `unsupported`；插件无 client 半则插件页行无「配置」按钮；Settings 插件页只读；`dsh plugin` 只转发 pnpm）→ Cordis Config 仅作显式覆盖，`baseUrl`/`token`/`machine` 缺省从本机共享配置 `~/.config/session-hub/config.json` 读取，`machine` 再以 `os.hostname()` 兜底；token 不入库、不进日志、不写 profile patch
 - 当前 DSH JSONL persistence 无删除/保留接口且不会删除会话文件，archive 不等于源删除；0.1.0 无可靠删除信号可镜像，若后续 DSH 暴露持久删除事件再补 DELETE 同步
+
+### Claude Code ✅
+- 存储：`~/.claude/projects/<cwd 转义>/<sessionId>.jsonl`（运行时实时追加，边跑边写）；subagent **不写主转写**，落在
+  `<project>/<主会话 id>/subagents/agent-<agentId>.jsonl`（`isSidechain:true`，带 `.meta.json`）
+- 记录字段：entry `type ∈ {user, assistant, attachment, ai-title, last-prompt, system, queue-operation, mode, permission-mode, atis-latch, file-history-snapshot, cost-state}`；
+  assistant content 块 ∈ `{text, thinking, tool_use}`；user 真人输入 = content **字符串**，tool_result 载体 = content **块数组**（须区分）；
+  同一次 API 调用拆多条 entry（`apiBlockIndex` 递增，`message.id` 相同）
+- hook（2.1.295 本机实测，无头 `claude -p` 探针）：`UserPromptSubmit`/`Stop`/`SessionEnd`/`SessionStart` payload 均带
+  `session_id` + **`transcript_path`（真实绝对路径，可靠——与 zcode 的临时文件教训相反）** + `cwd`；Stop 带
+  `last_assistant_message`/`stop_hook_active`；SessionEnd 带 `reason`；Stop 时刻转写已含最终 assistant 消息
+- title 首选 `ai-title` 条目的 `aiTitle`（同 WorkBuddy）；插件形态：`.claude-plugin/plugin.json` + `hooks/hooks.json`
+  （包装格式）+ 本地目录 marketplace（`.claude-plugin/marketplace.json`）；hooks 启动时加载，改动需重启
+- 采集路线：**插件 hook（UserPromptSubmit/Stop/SessionEnd）触发 + `transcript_path` 直读全量 upsert**；无 db、无节流；
+  subagent 0.1.0 不采集；插件档 `plugins/claude-code/develop-doc/0.1.0/plan.md`
 
 ### 自托管环境
 

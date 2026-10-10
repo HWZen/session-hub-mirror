@@ -1,0 +1,14 @@
+{
+  "name": "session-hub",
+  "description": "Local Session Hub collectors: upload agent sessions to a personal session-hub server",
+  "owner": {
+    "name": "Session Hub"
+  },
+  "plugins": [
+    {
+      "name": "session-hub-collector",
+      "description": "Session Hub collector: uploads Claude Code sessions to a personal session-hub server",
+      "source": "./claude-code"
+    }
+  ]
+}

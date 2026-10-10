@@ -1,0 +1,15 @@
+{
+  "name": "@session-hub/claude-code-plugin",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "node scripts/build.mjs",
+    "install:plugin": "node scripts/install.mjs",
+    "backfill": "node dist/backfill.js"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}
