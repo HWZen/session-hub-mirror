@@ -1,5 +1,6 @@
 {
-  "name": "session-hub-claude-code",
+  "name": "session-hub-collector",
+  "version": "0.1.0",
   "description": "Session Hub collector: uploads Claude Code sessions to a personal session-hub server",
   "author": {
     "name": "Session Hub"
