@@ -10,13 +10,7 @@
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
     "isolatedModules": true,
-    "types": ["node"],
-    "outDir": "./dist",
-    "rootDir": "./src",
-    "declaration": false,
-    "sourceMap": true,
-    "noEmit": true
+    "types": ["node"]
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist", "test"]
+  "include": ["src", "test"]
 }

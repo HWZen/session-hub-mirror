@@ -1,49 +1,24 @@
 import { build } from "esbuild";
-import { resolve } from "node:path";
+import { mkdirSync, rmSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const isProduction = process.argv.includes("--production");
+const root = dirname(dirname(fileURLToPath(import.meta.url)));
+const dist = join(root, "dist");
 
-async function buildAll() {
-  // Build hook.js
-  await build({
-    entryPoints: [resolve("src/hook.ts")],
-    bundle: true,
-    platform: "node",
-    target: "es2022",
-    outfile: resolve("dist/hook.js"),
-    format: "esm",
-    sourcemap: isProduction ? false : "inline",
-    minify: isProduction,
-  });
+rmSync(dist, { recursive: true, force: true });
+mkdirSync(dist, { recursive: true });
 
-  // Build worker.js
-  await build({
-    entryPoints: [resolve("src/worker.ts")],
-    bundle: true,
-    platform: "node",
-    target: "es2022",
-    outfile: resolve("dist/worker.js"),
-    format: "esm",
-    sourcemap: isProduction ? false : "inline",
-    minify: isProduction,
-  });
-
-  // Build backfill.js
-  await build({
-    entryPoints: [resolve("src/backfill.ts")],
-    bundle: true,
-    platform: "node",
-    target: "es2022",
-    outfile: resolve("dist/backfill.js"),
-    format: "esm",
-    sourcemap: isProduction ? false : "inline",
-    minify: isProduction,
-  });
-
-  console.log("Build complete");
-}
-
-buildAll().catch((err) => {
-  console.error("Build failed:", err);
-  process.exit(1);
+await build({
+  entryPoints: [join(root, "src/hook.ts"), join(root, "src/worker.ts"), join(root, "src/backfill.ts")],
+  outdir: dist,
+  bundle: true,
+  format: "esm",
+  platform: "node",
+  target: "node20",
+  splitting: false,
+  sourcemap: false,
+  logLevel: "info",
 });
+
+console.log(`claude-code plugin built to dist/ (hook entry: ${join(dist, "hook.js")})`);

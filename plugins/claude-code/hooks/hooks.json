@@ -1,41 +1,35 @@
 {
-  "description": "Claude Code session collector hooks for Session Hub",
+  "description": "Session Hub collector: uploads Claude Code sessions to a personal session-hub server",
   "hooks": {
     "UserPromptSubmit": [
       {
-        "matcher": "*",
         "hooks": [
           {
-            "type": "process",
-            "command": "node",
-            "args": ["dist/hook.js"],
-            "timeoutMs": 10000
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/hook.js\"",
+            "timeout": 10
           }
         ]
       }
     ],
     "Stop": [
       {
-        "matcher": "*",
         "hooks": [
           {
-            "type": "process",
-            "command": "node",
-            "args": ["dist/hook.js"],
-            "timeoutMs": 10000
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/hook.js\"",
+            "timeout": 10
           }
         ]
       }
     ],
     "SessionEnd": [
       {
-        "matcher": "*",
         "hooks": [
           {
-            "type": "process",
-            "command": "node",
-            "args": ["dist/hook.js"],
-            "timeoutMs": 10000
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/hook.js\"",
+            "timeout": 10
           }
         ]
       }

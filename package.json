@@ -5,8 +5,7 @@
     "packages/*",
     "server/apps/*",
     "plugins/*",
-    "apps/*",
-    "plugins/claude-code"
+    "apps/*"
   ],
   "scripts": {
     "dev": "npm run build -w @session-hub/shared && tsx watch server/apps/server/src/index.ts",

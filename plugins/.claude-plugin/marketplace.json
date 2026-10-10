@@ -1,1 +1,10 @@
-{"name": "session-hub", "plugins": [{"name": "session-hub", "source": "claude-code"}]}
+{
+  "name": "session-hub",
+  "plugins": [
+    {
+      "name": "session-hub-claude-code",
+      "description": "Session Hub collector: uploads Claude Code sessions to a personal session-hub server",
+      "source": "./claude-code"
+    }
+  ]
+}

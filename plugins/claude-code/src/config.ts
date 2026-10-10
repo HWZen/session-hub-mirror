@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { SessionUpsertPayload } from "./transform.js";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const CONFIG_DIR = join(homedir(), ".config", "session-hub");
@@ -16,21 +17,22 @@ export function loadConfig(
   env: Record<string, string | undefined> = process.env,
   configPath: string = CONFIG_PATH,
 ): SessionHubConfig | null {
-  let baseUrl = env["SESSION_HUB_URL"];
-  let token = env["SESSION_HUB_TOKEN"];
-  let timeoutMs = DEFAULT_TIMEOUT_MS;
-  if (baseUrl === undefined || token === undefined) {
-    try {
-      const file = JSON.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>;
-      if (baseUrl === undefined && typeof file["baseUrl"] === "string") baseUrl = file["baseUrl"];
-      if (token === undefined && typeof file["token"] === "string") token = file["token"];
-      if (typeof file["timeoutMs"] === "number" && (file["timeoutMs"] as number) > 0) {
-        timeoutMs = file["timeoutMs"] as number;
-      }
-    } catch {
-      // config file unreadable; env may still provide values
-    }
+  let fileConfig: Record<string, unknown> = {};
+  try {
+    fileConfig = JSON.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>;
+  } catch {
+    // config file unreadable; env vars may still provide values
   }
+
+  let baseUrl = env["SESSION_HUB_URL"];
+  if (baseUrl === undefined && typeof fileConfig["baseUrl"] === "string") baseUrl = fileConfig["baseUrl"];
+  let token = env["SESSION_HUB_TOKEN"];
+  if (token === undefined && typeof fileConfig["token"] === "string") token = fileConfig["token"];
+  let timeoutMs = DEFAULT_TIMEOUT_MS;
+  if (typeof fileConfig["timeoutMs"] === "number" && fileConfig["timeoutMs"] > 0) {
+    timeoutMs = fileConfig["timeoutMs"];
+  }
+
   if (typeof baseUrl !== "string" || baseUrl.length === 0) return null;
   if (typeof token !== "string" || token.length === 0) return null;
   let normalized: string;
@@ -69,7 +71,7 @@ export interface UploadResult {
 
 export async function uploadSession(
   config: SessionHubConfig,
-  payload: TransformedSession,
+  payload: SessionUpsertPayload,
 ): Promise<UploadResult> {
   const res = await request(config, "/v1/sessions", {
     method: "PUT",

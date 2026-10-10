@@ -1,1 +1,7 @@
-{"name": "@session-hub/claude-code-plugin", "version": "0.1.0", "displayName": "Session Hub Claude Code Collector", "description": "Collect Claude Code sessions and upload to Session Hub", "author": "Session Hub", "icon": "https://example.com/icon.png", "main": "dist/hook.js", "hooks": "hooks/hooks.json"}
+{
+  "name": "session-hub-claude-code",
+  "description": "Session Hub collector: uploads Claude Code sessions to a personal session-hub server",
+  "author": {
+    "name": "Session Hub"
+  }
+}

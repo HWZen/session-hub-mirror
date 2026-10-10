@@ -3,32 +3,60 @@ import { readFileSync } from "node:fs";
 export const MAX_TEXT_LENGTH = 1_000_000;
 export const MAX_MESSAGES = 5000;
 export const MAX_TOOL_OUTPUT_LENGTH = 100_000;
+export const MAX_TITLE_LENGTH = 2000;
+export const TITLE_FALLBACK_LENGTH = 200;
 export const TRUNCATE_MARK = "\n\n[session-hub: truncated]";
+
+const NON_DIALOG_ENTRY_TYPES = new Set([
+  "attachment",
+  "ai-title",
+  "last-prompt",
+  "system",
+  "queue-operation",
+  "mode",
+  "permission-mode",
+  "atis-latch",
+  "file-history-snapshot",
+  "file-history-delta",
+  "cost-state",
+]);
+
+export interface ContentBlock {
+  type: string;
+  text?: string;
+  thinking?: string;
+  signature?: string;
+  id?: string;
+  name?: string;
+  input?: unknown;
+  tool_use_id?: string;
+  content?: string | ContentBlock[];
+  is_error?: boolean;
+}
 
 export interface ClaudeEntry {
   type: string;
-  uuid: string;
-  parentUuid?: string;
-  sessionId: string;
-  cwd: string;
-  timestamp: string;
-  version: string;
+  uuid?: string;
+  parentUuid?: string | null;
+  isSidechain?: boolean;
+  sessionId?: string;
+  cwd?: string;
+  version?: string;
+  timestamp?: string;
+  apiBlockIndex?: number;
+  aiTitle?: string;
   message?: {
-    id: string;
-    content: Array<{
-      type: string;
-      text?: string;
-      thinking?: string;
-      signature?: string;
-      id?: string;
-      name?: string;
-      input?: unknown;
-    }> | string;
+    id?: string;
+    role?: string;
+    content?: string | ContentBlock[];
   };
-  aiTitle?: {
-    aiTitle: string;
-    sessionId: string;
-  };
+}
+
+export interface TranscriptMessage {
+  role: string;
+  text?: string;
+  ts?: number;
+  raw?: unknown;
 }
 
 export interface TranscriptSession {
@@ -37,147 +65,175 @@ export interface TranscriptSession {
   createdAt: number;
   updatedAt: number;
   title?: string;
-  messages: Array<{
-    role: string;
-    text?: string;
-    ts: number;
-    raw: unknown;
-  }>;
+  messages: TranscriptMessage[];
 }
 
-function truncateText(text: string, limit: number): string {
+export function truncateText(text: string, limit: number): string {
   if (text.length <= limit) return text;
   return text.slice(0, limit) + TRUNCATE_MARK;
 }
 
 export function readTranscript(path: string): ClaudeEntry[] {
   const content = readFileSync(path, "utf8");
-  return content
-    .split("\n")
-    .filter(line => line.trim())
-    .map(line => JSON.parse(line) as ClaudeEntry);
+  const entries: ClaudeEntry[] = [];
+  for (const line of content.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      entries.push(JSON.parse(line) as ClaudeEntry);
+    } catch {
+      // skip malformed lines; partial trailing line can appear while transcript is being written
+    }
+  }
+  return entries;
+}
+
+function entryTimestampMs(entry: ClaudeEntry): number {
+  if (typeof entry.timestamp !== "string") return Number.NaN;
+  const ms = Date.parse(entry.timestamp);
+  return Number.isFinite(ms) ? ms : Number.NaN;
+}
+
+function toolResultText(content: string | ContentBlock[] | undefined): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  const pieces: string[] = [];
+  for (const block of content) {
+    if (block && typeof block === "object" && block.type === "text" && typeof block.text === "string") {
+      pieces.push(block.text);
+    }
+  }
+  return pieces.join("\n\n");
+}
+
+function isRealUserInput(entry: ClaudeEntry): boolean {
+  return entry.type === "user" && typeof entry.message?.content === "string";
+}
+
+function isToolResultCarrier(entry: ClaudeEntry): boolean {
+  return entry.type === "user" && Array.isArray(entry.message?.content);
+}
+
+function isInjectedPrompt(text: string): boolean {
+  return text.trimStart().startsWith("<system-reminder");
+}
+
+interface AssistantGroup {
+  key: string;
+  entries: ClaudeEntry[];
 }
 
 export function groupTranscript(entries: ClaudeEntry[]): TranscriptSession {
-  const sessionId = entries[0]?.sessionId || "";
-  const cwd = entries[0]?.cwd || "";
+  const sessionId = entries.find((e) => typeof e.sessionId === "string")?.sessionId ?? "";
+  const cwd = entries.find((e) => typeof e.cwd === "string")?.cwd ?? "";
 
-  // Filter out unwanted entry types
-  const filtered = entries.filter(entry => {
-    const skipTypes = new Set([
-      "attachment", "ai-title", "last-prompt", "system",
-      "queue-operation", "mode", "permission-mode", "atis-latch",
-      "file-history-snapshot", "cost-state"
-    ]);
-    return !skipTypes.has(entry.type);
-  });
+  const title = [...entries]
+    .reverse()
+    .find((e) => e.type === "ai-title" && typeof e.aiTitle === "string" && e.aiTitle.length > 0)?.aiTitle;
 
-  // Get title from ai-title entries
-  const aiTitle = entries
-    .filter(e => e.type === "ai-title" && e.aiTitle)
-    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-    .map(e => e.aiTitle?.aiTitle)[0];
-
-  // Extract all messages
-  const messagesByMessageId = new Map<string, ClaudeEntry[]>();
-  const toolResults = new Map<string, ClaudeEntry>();
-
-  for (const entry of filtered) {
-    if (entry.type === "user" || entry.type === "assistant") {
-      if (entry.message?.id) {
-        const arr = messagesByMessageId.get(entry.message.id) || [];
-        arr.push(entry);
-        messagesByMessageId.set(entry.message.id, arr);
+  const toolResults = new Map<string, string>();
+  for (const entry of entries) {
+    const content = isToolResultCarrier(entry) ? entry.message?.content : undefined;
+    if (!Array.isArray(content)) continue;
+    for (const block of content) {
+      if (block?.type === "tool_result" && typeof block.tool_use_id === "string") {
+        toolResults.set(block.tool_use_id, toolResultText(block.content));
       }
-    } else if (entry.type === "tool_result" && entry.message?.id) {
-      toolResults.set(entry.message.id, entry);
     }
   }
 
-  // Process messages
-  const messages: TranscriptSession["messages"] = [];
+  const ordered: Array<TranscriptMessage | AssistantGroup> = [];
+  const groups = new Map<string, AssistantGroup>();
 
-  for (const [messageId, entries] of messagesByMessageId) {
-    // Sort by apiBlockIndex if available
-    const sorted = entries.sort((a, b) => {
-      const idxA = (a.message as any)?.apiBlockIndex ?? 0;
-      const idxB = (b.message as any)?.apiBlockIndex ?? 0;
-      return idxA - idxB;
-    });
+  for (const entry of entries) {
+    if (NON_DIALOG_ENTRY_TYPES.has(entry.type)) continue;
+    if (entry.isSidechain === true) continue;
 
-    // Combine all parts
-    const role = sorted[0].type === "user" ? "user" : "assistant";
-    const rawParts: any[] = [];
+    if (isRealUserInput(entry) && entry.message) {
+      const text = entry.message.content as string;
+      if (isInjectedPrompt(text)) continue;
+      const ts = entryTimestampMs(entry);
+      ordered.push({
+        role: "user",
+        text: truncateText(text, MAX_TEXT_LENGTH),
+        ...(Number.isFinite(ts) ? { ts } : {}),
+      });
+      continue;
+    }
+
+    if (isToolResultCarrier(entry)) continue;
+
+    if (entry.type === "assistant" && entry.message && Array.isArray(entry.message.content)) {
+      const key = typeof entry.message.id === "string" && entry.message.id.length > 0
+        ? entry.message.id
+        : (entry.uuid ?? "");
+      let group = groups.get(key);
+      if (!group) {
+        group = { key, entries: [] };
+        groups.set(key, group);
+        ordered.push(group);
+      }
+      group.entries.push(entry);
+    }
+  }
+
+  const messages: TranscriptMessage[] = [];
+  for (const item of ordered) {
+    if (!("key" in item)) {
+      messages.push(item);
+      continue;
+    }
+    const group = item as AssistantGroup;
+    const sorted = [...group.entries].sort((a, b) => (a.apiBlockIndex ?? 0) - (b.apiBlockIndex ?? 0));
+    const parts: Array<Record<string, unknown>> = [];
     const textPieces: string[] = [];
-
     for (const entry of sorted) {
-      if (!entry.message?.content) continue;
-
-      const content = entry.message.content;
-      const parts = Array.isArray(content) ? content : [{ type: "text", text: content }];
-
-      for (const part of parts) {
-        if (part.type === "thinking" && part.thinking !== undefined) {
-          rawParts.push({ type: "reasoning", text: part.thinking });
-          textPieces.push(`[Thinking] ${part.thinking}`);
-        } else if (part.type === "text" && part.text !== undefined) {
-          rawParts.push({ type: "text", text: part.text });
-          textPieces.push(part.text);
-        } else if (part.type === "tool_use" && part.id !== undefined && part.name !== undefined && part.input !== undefined) {
-          const toolPart = {
-            type: "tool",
-            callID: part.id,
-            tool: part.name,
-            state: { status: "completed", input: part.input }
-          };
-
-          // Check if there's a tool_result for this tool_use
-          const toolResult = toolResults.get(messageId);
-          if (toolResult?.message?.content && Array.isArray(toolResult.message.content)) {
-            for (const trPart of toolResult.message.content) {
-              if (trPart.type === "tool_result" && (trPart as any).tool_use_id === part.id && trPart.text !== undefined) {
-                toolPart.state.output = truncateText(trPart.text, MAX_TOOL_OUTPUT_LENGTH);
-              }
-            }
-          }
-
-          rawParts.push(toolPart);
+      const content = entry.message?.content;
+      if (!Array.isArray(content)) continue;
+      for (const block of content) {
+        if (block.type === "thinking" && typeof block.thinking === "string") {
+          parts.push({ type: "reasoning", text: block.thinking });
+        } else if (block.type === "text" && typeof block.text === "string") {
+          parts.push({ type: "text", text: block.text });
+          textPieces.push(block.text);
+        } else if (block.type === "tool_use" && typeof block.id === "string" && typeof block.name === "string") {
+          const state: Record<string, unknown> = { status: "completed", input: block.input };
+          const output = toolResults.get(block.id);
+          if (output !== undefined) state["output"] = truncateText(output, MAX_TOOL_OUTPUT_LENGTH);
+          parts.push({ type: "tool", callID: block.id, tool: block.name, state });
         }
       }
     }
-
-    const text = truncateText(textPieces.join("\n\n"), MAX_TEXT_LENGTH);
-    const ts = new Date(sorted[0].timestamp).getTime();
-
-    messages.push({
-      role,
-      text,
-      ts,
-      raw: rawParts.length === 1 ? rawParts[0] : rawParts
-    });
+    const ts = entryTimestampMs(sorted[0] ?? group.entries[0]!);
+    const message: TranscriptMessage = {
+      role: "assistant",
+      raw: parts.length === 1 ? parts[0] : parts,
+      ...(Number.isFinite(ts) ? { ts } : {}),
+    };
+    if (textPieces.length > 0) message.text = truncateText(textPieces.join("\n\n"), MAX_TEXT_LENGTH);
+    messages.push(message);
   }
 
-  // Sort messages by timestamp
-  messages.sort((a, b) => a.ts - b.ts);
+  const trimmed = messages.slice(-MAX_MESSAGES);
 
-  // Take last MAX_MESSAGES
-  const trimmedMessages = messages.slice(-MAX_MESSAGES);
+  const timestamps = entries
+    .map(entryTimestampMs)
+    .filter((ms) => Number.isFinite(ms));
+  const createdAt = timestamps.length > 0 ? Math.min(...timestamps) : 0;
+  const updatedAt = timestamps.length > 0 ? Math.max(...timestamps) : 0;
 
-  // Get created/updated times
-  const timestamps = filtered.map(e => new Date(e.timestamp).getTime());
-  const createdAt = timestamps.length > 0 ? Math.min(...timestamps) : Date.now();
-  const updatedAt = timestamps.length > 0 ? Math.max(...timestamps) : Date.now();
+  const fallbackTitle = trimmed.find((m) => m.role === "user" && typeof m.text === "string" && m.text.length > 0)
+    ?.text?.slice(0, TITLE_FALLBACK_LENGTH);
 
-  // If no title from ai-title, use first user message
-  const firstUserMessage = trimmedMessages.find(m => m.role === "user");
-  const title = (aiTitle ?? firstUserMessage?.text?.slice(0, 200) ?? "Untitled session");
-
-  return {
+  const session: TranscriptSession = {
     sessionId,
     cwd,
     createdAt,
     updatedAt,
-    title: truncateText(title, 2000),
-    messages: trimmedMessages
+    messages: trimmed,
   };
+  const effectiveTitle = title ?? fallbackTitle;
+  if (effectiveTitle !== undefined && effectiveTitle.length > 0) {
+    session.title = truncateText(effectiveTitle, MAX_TITLE_LENGTH);
+  }
+  return session;
 }
