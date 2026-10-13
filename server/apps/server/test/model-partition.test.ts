@@ -64,9 +64,13 @@ describe("model partitioned chunk embeddings", () => {
     expect(health.embedding.model).toBe("model-b");
 
     const searchB = await postSearch(app, { query: "hello world" });
-    const bodyB = (await searchB.json()) as { model: string; results: unknown[] };
+    const bodyB = (await searchB.json()) as {
+      model: string;
+      results: Array<{ matched_by: string[]; distance: number | null }>;
+    };
     expect(bodyB.model).toBe("model-b");
-    expect(bodyB.results).toEqual([]);
+    expect(bodyB.results.every((h) => !h.matched_by.includes("dense"))).toBe(true);
+    expect(bodyB.results.every((h) => h.distance === null)).toBe(true);
 
     const stats = (await (await app.request("/v1/stats", { headers: { authorization: `Bearer ${TEST_TOKEN}` } })).json()) as {
       indexed: number;

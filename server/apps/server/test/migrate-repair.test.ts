@@ -145,3 +145,93 @@ describe("0006 meta title only", () => {
     expectChunkStateCleared(db, "0006_meta_title_only");
   });
 });
+
+function seedSessionWithChunks(db: SqliteDatabase, sessionId: string, messageText: string, chunkText: string): void {
+  db.prepare(
+    "INSERT INTO sessions (id, agent, machine, source_id, created_at, updated_at) VALUES (?, 'opencode', 'M1', ?, 1, 2)",
+  ).run(sessionId, `${sessionId}-src`);
+  const info = db
+    .prepare("INSERT INTO messages (session_id, idx, role, text) VALUES (?, 0, 'user', ?)")
+    .run(sessionId, messageText);
+  db.prepare("INSERT INTO message_chunks (message_id, chunk_no, source, text, char_start) VALUES (?, 0, 'text', ?, 0)").run(
+    Number(info.lastInsertRowid),
+    chunkText,
+  );
+}
+
+function ftsMatchCount(db: SqliteDatabase, term: string): number {
+  return (
+    db
+      .prepare("SELECT COUNT(*) AS n FROM message_chunks_fts WHERE message_chunks_fts MATCH ?")
+      .get(term) as { n: number }
+  ).n;
+}
+
+describe("0007 chunk fts", () => {
+  it("creates the external-content trigram table on fresh databases", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "session-hub-fts-fresh-"));
+    const db = createDb(path.join(dir, "fts.db"));
+    migrate(db);
+    expect(tableExists(db, "message_chunks_fts")).toBe(true);
+    expect(
+      db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = 'message_chunks_fts_ai'").get(),
+    ).toBeDefined();
+    expect(
+      db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = 'message_chunks_fts_ad'").get(),
+    ).toBeDefined();
+    expect(
+      db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = 'message_chunks_fts_au'").get(),
+    ).toBeDefined();
+    db.close();
+  });
+
+  it("rebuilds the index over pre-existing chunks and aligns rowids with message_chunks.id", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "session-hub-fts-rebuild-"));
+    const db = createDb(path.join(dir, "fts.db"));
+    migrate(db);
+    seedSessionWithChunks(db, "s1", "hello", "unique-needle-alpha");
+    expect(ftsMatchCount(db, '"alpha"')).toBe(1);
+
+    for (const trigger of ["message_chunks_fts_ai", "message_chunks_fts_ad", "message_chunks_fts_au"]) {
+      db.exec(`DROP TRIGGER IF EXISTS ${trigger}`);
+    }
+    db.exec("DROP TABLE message_chunks_fts");
+    forgetMigration(db, "0007_chunk_fts");
+    migrate(db);
+
+    expect(tableExists(db, "message_chunks_fts")).toBe(true);
+    expect(ftsMatchCount(db, '"alpha"')).toBe(1);
+    const row = db
+      .prepare(
+        "SELECT f.rowid AS fts_rowid, c.id AS chunk_id FROM message_chunks_fts f JOIN message_chunks c ON c.id = f.rowid",
+      )
+      .get() as { fts_rowid: number; chunk_id: number };
+    expect(row.fts_rowid).toBe(row.chunk_id);
+    db.close();
+  });
+
+  it("stays consistent across session reindex (clear + reinsert) and leaves no orphans after deletion", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "session-hub-fts-sync-"));
+    const db = createDb(path.join(dir, "fts.db"));
+    migrate(db);
+    seedSessionWithChunks(db, "s1", "hello", "old-winter-term");
+    expect(ftsMatchCount(db, '"winter"')).toBe(1);
+
+    db.exec("DELETE FROM message_chunks");
+    expect(ftsMatchCount(db, '"winter"')).toBe(0);
+    db.prepare("INSERT INTO message_chunks (id, message_id, chunk_no, source, text, char_start) VALUES (7, 1, 0, 'text', ?, 0)").run(
+      "new-summer-term",
+    );
+    expect(ftsMatchCount(db, '"summer"')).toBe(1);
+
+    db.prepare("UPDATE message_chunks SET text = 'renamed-spring-term' WHERE id = 7").run();
+    expect(ftsMatchCount(db, '"summer"')).toBe(0);
+    expect(ftsMatchCount(db, '"spring"')).toBe(1);
+
+    db.exec("DELETE FROM messages");
+    expect(ftsMatchCount(db, '"spring"')).toBe(0);
+    const orphan = db.prepare("SELECT COUNT(*) AS n FROM message_chunks_fts").get() as { n: number };
+    expect(orphan.n).toBe(0);
+    db.close();
+  });
+});

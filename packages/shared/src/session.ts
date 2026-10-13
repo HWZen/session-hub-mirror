@@ -93,18 +93,23 @@ export interface SessionDetail extends SessionRecord {
 
 export type MessageSource = "text" | "reasoning";
 
+export type SearchChannel = "dense" | "lexical";
+
 export interface SearchSnippet {
   message_idx: number;
   role: string;
   text: string;
   ts: number | null;
   source: MessageSource;
-  distance: number;
+  distance: number | null;
+  matched_by: SearchChannel[];
 }
 
 export interface SearchHit {
   session: SessionRecord;
-  distance: number;
+  score: number;
+  distance: number | null;
+  matched_by: SearchChannel[];
   snippets: SearchSnippet[];
 }
 

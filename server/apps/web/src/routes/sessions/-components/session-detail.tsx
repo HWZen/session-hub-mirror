@@ -11,6 +11,7 @@ import {
   WrenchIcon,
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
+import { filterConversationMessages } from "@/lib/conversation";
 import { formatTime } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -45,6 +46,7 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
     );
   }
   const s = detail.data!;
+  const messages = filterConversationMessages(s.messages);
   return (
     <div className="flex h-full min-w-0 flex-col">
       <div className="shrink-0 border-b border-border/70 px-4 py-3.5 md:px-6">
@@ -84,10 +86,10 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 md:px-6">
         <div className="mx-auto flex max-w-3xl flex-col gap-4">
-          {s.messages.map((m) => (
+          {messages.map((m) => (
             <MessageBubble key={m.idx} idx={m.idx} role={m.role} text={m.text} ts={m.ts} raw={m.raw} />
           ))}
-          {s.messages.length === 0 ? (
+          {messages.length === 0 ? (
             <p className="py-10 text-center text-sm text-muted-foreground">此会话没有消息</p>
           ) : null}
         </div>

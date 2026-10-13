@@ -116,6 +116,12 @@ function mapMessageRows(rows: MessageRow[]): MessageRecord[] {
 
 type ConversationRow = { idx: number; role: string; text: string; ts: number | null };
 
+const CONVERSATION_ROLES = new Set(["user", "assistant"]);
+
+function isConversationMessage(message: ConversationMessage): boolean {
+  return CONVERSATION_ROLES.has(message.role) && message.text.trim() !== "";
+}
+
 function mapConversationRows(rows: ConversationRow[]): ConversationMessage[] {
   return rows.map((m) => ({
     idx: m.idx,
@@ -220,7 +226,7 @@ export class SessionRepository {
       this.#db
         .prepare("SELECT idx, role, text, ts FROM messages WHERE session_id = ? ORDER BY idx")
         .all(id) as ConversationRow[],
-    );
+    ).filter(isConversationMessage);
   }
 
   delete(id: string): boolean {

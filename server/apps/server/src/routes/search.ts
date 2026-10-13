@@ -40,7 +40,7 @@ export function searchRoutes(deps: SearchRouteDeps): Hono {
       }
       throw err;
     }
-    const results = searchSessions(deps.db, model, vector, topK, parsed.data.filters ?? {});
+    const results = searchSessions(deps.db, model, parsed.data.query, vector, topK, parsed.data.filters ?? {});
     return c.json({ model, provider, results });
   });
 

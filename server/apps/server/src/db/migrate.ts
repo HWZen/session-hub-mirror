@@ -134,6 +134,37 @@ function repairRenamedVec0Table(db: SqliteDatabase): void {
   dropOrphanShadowTables(db);
 }
 
+const MIGRATION_0007_SQL = `
+  CREATE VIRTUAL TABLE IF NOT EXISTS message_chunks_fts USING fts5(
+    text,
+    content='message_chunks',
+    content_rowid='id',
+    tokenize='trigram'
+  );
+  CREATE TRIGGER IF NOT EXISTS message_chunks_fts_ai AFTER INSERT ON message_chunks BEGIN
+    INSERT INTO message_chunks_fts(rowid, text) VALUES (new.id, new.text);
+  END;
+  CREATE TRIGGER IF NOT EXISTS message_chunks_fts_ad AFTER DELETE ON message_chunks BEGIN
+    INSERT INTO message_chunks_fts(message_chunks_fts, rowid, text) VALUES ('delete', old.id, old.text);
+  END;
+  CREATE TRIGGER IF NOT EXISTS message_chunks_fts_au AFTER UPDATE ON message_chunks BEGIN
+    INSERT INTO message_chunks_fts(message_chunks_fts, rowid, text) VALUES ('delete', old.id, old.text);
+    INSERT INTO message_chunks_fts(rowid, text) VALUES (new.id, new.text);
+  END;
+`;
+
+const FTS_TABLE = "message_chunks_fts";
+
+function fts5Available(db: SqliteDatabase): boolean {
+  try {
+    db.exec("CREATE VIRTUAL TABLE temp.__fts5_probe USING fts5(x)");
+    db.exec("DROP TABLE temp.__fts5_probe");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const MIGRATIONS: ReadonlyArray<{ name: string; up: (db: SqliteDatabase) => void }> = [
   {
     name: "0001_init",
@@ -175,6 +206,16 @@ const MIGRATIONS: ReadonlyArray<{ name: string; up: (db: SqliteDatabase) => void
       db.exec("DELETE FROM message_chunks");
       dropChunkEmbeddingsTables(db);
       db.exec("UPDATE sessions SET indexed_at = NULL, indexed_model = NULL");
+    },
+  },
+  {
+    name: "0007_chunk_fts",
+    up: (db) => {
+      if (!fts5Available(db)) {
+        throw new Error("FTS5 is not available in this SQLite build; hybrid search requires it");
+      }
+      db.exec(MIGRATION_0007_SQL);
+      db.exec(`INSERT INTO ${FTS_TABLE}(${FTS_TABLE}) VALUES('rebuild')`);
     },
   },
 ];
