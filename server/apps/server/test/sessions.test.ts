@@ -268,7 +268,7 @@ describe("session detail split (0.13.0)", () => {
     return ((await res.json()) as { id: string }).id;
   }
 
-  it("GET /:id 只返回对话消息（idx/role/text/ts），不含元数据与 raw", async () => {
+  it("GET /:id 返回对话视图消息（idx/role/text/ts），不含元数据与 raw", async () => {
     const { app } = buildApp();
     const id = await seedSession(app);
     const res = await app.request(`/v1/sessions/${id}`, AUTH);
@@ -328,5 +328,94 @@ describe("session detail split (0.13.0)", () => {
     for (const path of missingPaths) {
       expect((await app.request(path, AUTH)).status).toBe(404);
     }
+  });
+});
+
+describe("conversation view filtering (0.22.0)", () => {
+  const AUTH = { headers: { authorization: `Bearer ${TEST_TOKEN}` } };
+
+  async function seedMixedSession(app: ReturnType<typeof buildApp>["app"]): Promise<string> {
+    const res = await putSession(
+      app,
+      sessionBody({
+        title: "对话视图过滤",
+        messages: [
+          { role: "system", text: "Code Mode 工具目录（46KB）", ts: 1 },
+          { role: "user", text: "第一条问题", ts: 2 },
+          { role: "assistant", text: "第一条回答", ts: 3, raw: { parts: [{ type: "text", text: "第一条回答" }] } },
+          { role: "assistant", text: "", ts: 4, raw: { parts: [{ type: "reasoning", text: "仅思考" }] } },
+          { role: "synthetic", text: "AGENTS.md 指令块", ts: 5 },
+          { role: "assistant", text: "   ", ts: 6, raw: { parts: [] } },
+          { role: "idle", text: "轮次结束标记", ts: 7 },
+          { role: "user", text: "第二条问题", ts: 8 },
+          { role: "assistant", text: "  第二条回答（保留边缘空白）  ", ts: 9 },
+          { role: "user", ts: 10 },
+        ],
+      }),
+    );
+    expect(res.status).toBe(201);
+    return ((await res.json()) as { id: string }).id;
+  }
+
+  it("GET /:id 只返回用户内容与助手正文，idx 保留原值且升序", async () => {
+    const { app } = buildApp();
+    const id = await seedMixedSession(app);
+    const res = await app.request(`/v1/sessions/${id}`, AUTH);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { messages: Array<Record<string, unknown>> };
+    expect(Object.keys(body)).toEqual(["messages"]);
+    expect(body.messages.map((m) => m.idx)).toEqual([1, 2, 7, 8]);
+    expect(body.messages.map((m) => m.role)).toEqual(["user", "assistant", "user", "assistant"]);
+    expect(body.messages.map((m) => m.text)).toEqual([
+      "第一条问题",
+      "第一条回答",
+      "第二条问题",
+      "  第二条回答（保留边缘空白）  ",
+    ]);
+    for (const m of body.messages) {
+      expect(Object.keys(m)).toEqual(["idx", "role", "text", "ts"]);
+      expect(m.raw).toBeUndefined();
+    }
+  });
+
+  it("GET /:id 在全部消息被过滤时返回空数组而非 404", async () => {
+    const { app } = buildApp();
+    const res = await putSession(
+      app,
+      sessionBody({
+        messages: [
+          { role: "system", text: "系统提示词" },
+          { role: "assistant", text: " " },
+        ],
+      }),
+    );
+    const { id } = (await res.json()) as { id: string };
+    const view = await app.request(`/v1/sessions/${id}`, AUTH);
+    expect(view.status).toBe(200);
+    expect(((await view.json()) as { messages: unknown[] }).messages).toEqual([]);
+  });
+
+  it("/full 与列表 message_count 仍包含全部角色与 raw", async () => {
+    const { app } = buildApp();
+    const id = await seedMixedSession(app);
+    const fullRes = await app.request(`/v1/sessions/${id}/full`, AUTH);
+    expect(fullRes.status).toBe(200);
+    const full = (await fullRes.json()) as { messages: Array<{ role: string; raw: unknown }> };
+    expect(full.messages).toHaveLength(10);
+    expect(full.messages.map((m) => m.role)).toEqual([
+      "system",
+      "user",
+      "assistant",
+      "assistant",
+      "synthetic",
+      "assistant",
+      "idle",
+      "user",
+      "assistant",
+      "user",
+    ]);
+    expect(full.messages[3]!.raw).toEqual({ parts: [{ type: "reasoning", text: "仅思考" }] });
+    const list = await getList(app);
+    expect(list.items[0]!.message_count).toBe(10);
   });
 });

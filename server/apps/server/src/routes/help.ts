@@ -162,12 +162,12 @@ export const endpoints: EndpointHelp[] = [
   {
     method: "GET",
     path: "/v1/sessions/:id",
-    summary: "获取会话对话消息（idx/role/text/ts，不含会话元数据与消息 raw）",
+    summary: "获取会话对话视图（仅用户内容与助手正文，idx/role/text/ts）",
     description:
-      "对话视图：返回每条消息的 idx/role/text/ts，不含会话元数据与消息 raw。只看对话流、不需要原始结构时选它；要完整元数据或消息 raw 再走 /full。",
+      "对话视图：只返回「用户内容 + 助手正文」——role 为 user 或 assistant 且正文非空的消息；system/synthetic/idle 等标记类消息与无正文的助手步骤（纯思考/工具调用）一律不出现。idx 保留原始值（可能不连续），便于与 /full、检索结果逐条对照。不含会话元数据与消息 raw。只看对话流、不需要原始结构时选它；要完整消息（含全部角色与 raw）再走 /full。",
     params: [{ name: "id", in: "path", type: "string", required: true, desc: "会话 ID" }],
     returns: [
-      { name: "messages", type: "object[]", desc: "对话消息数组：{ idx, role, text, ts }，按 idx 升序；不含 raw，raw 只在 /full 返回" },
+      { name: "messages", type: "object[]", desc: "对话消息数组：{ idx, role, text, ts }，按 idx 升序（保留原值，可能不连续）；仅含 user 与有正文的 assistant；不含 raw，raw 只在 /full 返回" },
     ],
     errors: [{ status: 404, message: "not found", recoverable: false }, ...UNAUTHORIZED],
   },

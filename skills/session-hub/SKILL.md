@@ -196,7 +196,7 @@ GET /v1/grep?q=E_ROLLBACK&agent=opencode&limit=20
 
 ```text
 GET /v1/sessions?agent=opencode&limit=20&offset=0
-GET /v1/sessions/:id             # 对话消息（idx/role/text/ts，不含元数据与 raw）
+GET /v1/sessions/:id             # 对话视图（仅用户内容与助手正文的 idx/role/text/ts；system 等标记与无正文步骤不出现，完整内容走 /full）
 GET /v1/sessions/:id/full        # 全量详情（会话记录 + 全部消息含 raw）
 GET /v1/sessions/:id/full_length # full 响应体字节数
 DELETE /v1/sessions/:id          # 软删除
