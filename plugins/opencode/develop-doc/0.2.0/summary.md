@@ -46,5 +46,5 @@ npx tsx scripts/acceptance/e2e-v1.ts                                            
 1. **V1 宿主 exe 需重建后复跑两项阻塞断言**（`SystemPrompt.environment` TypeError，超出本版授权范围；修复后用同一运行器复跑即可）。
 2. `plugin.updated` 事件在 A9 观测窗口内未出现（`reloadSeenAt=null`）；reload 检测以 PUT 数稳定性与文件 SHA 回归为实质判据，如需直接事件证据可在后续版本用 `plugin.check/list` 轮询补强。
 3. 多 location 多实例重复上传为宿主语义、服务端幂等；如需去重（跨实例协调）属后续需求评估。
-4. **现役生效尚缺生产接入配置**：全局 `plugins/` 目录自动发现的单文件插件拿不到 options；需按官方形态以目录包 + `plugins: [{ package, options: { endpoint, auth } }]` 声明（现役 `opencode.jsonc` 无该配置）。部署与配置按计划待独立验收/批准后执行。
+4. **现役部署已完成（2026-10-13，用户批准后执行）**：`~/.config/opencode/plugin-packages/session-hub/`（目录包，`index.js` 为本版产物 SHA）＋ `opencode.jsonc` 的 `plugins: [{ package: "./plugin-packages/session-hub", options: { endpoint: "http://127.0.0.1:49374", auth: { password } } }]`（端点为本机桌面服务的固定端口 0xC0DE=49374，密码取自 `~/.local/state/opencode/service.json`，不入库）。旧单文件与旧配置备份在 `~/.config/opencode/plugin-backups/`。配置修改经宿主热加载生效（无需重启）。现役验证：临时真实会话完成上传（201→200）与删除镜像同步删除。若以后桌面服务端口变化（`opencode service status` 可查），需同步更新配置中的 endpoint。
 5. 隔离设施（防火墙规则组与两个隔离副本）待 Leader 完成独立验收后按交接流程清理。
