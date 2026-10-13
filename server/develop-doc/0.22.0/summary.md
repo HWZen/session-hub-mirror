@@ -52,7 +52,22 @@
   - Web 详情页 DOM 与 API 对话视图逐条一致（73/73、488/488、61/61），无 system/synthetic/idle 气泡、无「（无文本内容）」占位，可见行「原始 JSON」折叠正常，标题/徽章/时间等其余部分不变。
   - `GET /v1/sessions/:id?help=1` 返回新语义描述。
 
+## 线上部署记录（2026-10-13）
+
+0.22.0 已部署到生产实例并完成验收：
+
+| 项 | 内容 |
+|---|---|
+| 机器/服务 | `ssh hwz_intel_26`（WSL2），systemd `session-hub.service`，端口 1696 |
+| 部署目录 | `~/apps/session-hub`（`node apps/server/dist/index.js`，`SH_WEB_DIST=./apps/web/dist`） |
+| 产物 | `packages/shared/dist`、`server/apps/server/dist`、`server/apps/web/dist`、`server/package.json`（本地 worktree `npm run build`，tar 包 sha256 校验） |
+| 流程 | scp → 远端 staging 冒烟（1698 端口 + 独立临时 db，`/health` 返回 0.22.0）→ 备份旧产物 → 替换 → `sudo systemctl restart session-hub` |
+| 备份/回滚 | `~/deploy-backups/session-hub-0.21.1-dist-20261013-163151.tar.gz`；回滚 = 解包回部署目录 + 重启 |
+| 迁移 | 无新增 migration，重启即生效 |
+| 验收 | `/health` version 0.22.0・warnings 空・embedding 5070ti-frp ready；help 返回新语义；Web 首页与静态资源 200；30 个真实会话对话视图与 `/full` 逐条核对 0 不匹配；`/v1/stats` indexed 812 / unindexed 0 |
+
+验收脚本：远端 `/tmp/verify-prod-0220.mjs`（只读：核对 health 版本、help 文案、前端资源与最多 30 个会话的视图过滤）。
+
 ## 遗留事项
 
 - 本机无法连通 embedding 提供商（frpc 隧道在本机不可达），本地 worktree 的会话保持未索引、`/v1/search` 在本地会返回 503；与本需求无关，不影响本版验收。
-- 0.21 线的远程 dev 验收环境（`~/apps/session-hub-021-dev`）当前已不存在（远程只剩生产 `~/apps/session-hub`）；如需远程真实库验收，先重建 dev 实例再按 0.21.0 summary 的流程部署本版产物。
