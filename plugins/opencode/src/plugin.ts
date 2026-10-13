@@ -51,6 +51,9 @@ const MAX_TEXT_LENGTH = 1_000_000;
 const MAX_MESSAGES = 5000;
 const TRUNCATE_MARK = "\n\n[session-hub: truncated]";
 
+/** 服务端 schema 与既有上限；V2 超限时暂停该会话同步而不是静默截断。 */
+export const SESSION_LIMITS = { messagesMax: 5000, textMax: 1_000_000, titleMax: 2000, cwdMax: 2000 } as const;
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (typeof value !== "object" || value === null) return null;
   return value as Record<string, unknown>;
@@ -109,12 +112,21 @@ export function transformSession(
   return result;
 }
 
-async function request(config: SessionHubConfig, path: string, init: RequestInit): Promise<Response> {
+async function withResponse<T>(
+  config: SessionHubConfig,
+  path: string,
+  init: RequestInit,
+  consume: (response: Response) => Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
   const controller = new AbortController();
+  const abort = () => controller.abort(signal?.reason);
+  if (signal?.aborted) abort();
+  else signal?.addEventListener("abort", abort, { once: true });
   const timer = setTimeout(() => controller.abort(), config.timeoutMs);
   try {
     const url = new URL(path, config.baseUrl).toString();
-    return await fetch(url, {
+    const response = await fetch(url, {
       ...init,
       signal: controller.signal,
       headers: {
@@ -123,8 +135,13 @@ async function request(config: SessionHubConfig, path: string, init: RequestInit
         ...init.headers,
       },
     });
+    const result = await consume(response);
+    controller.signal.throwIfAborted();
+    return result;
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", abort);
+    controller.abort();
   }
 }
 
@@ -134,18 +151,17 @@ export interface UploadResult {
   body: unknown;
 }
 
-export async function uploadSession(config: SessionHubConfig, payload: TransformedSession): Promise<UploadResult> {
-  const res = await request(config, "/v1/sessions", {
+export async function uploadSession(config: SessionHubConfig, payload: TransformedSession, signal?: AbortSignal): Promise<UploadResult> {
+  return withResponse(config, "/v1/sessions", {
     method: "PUT",
     body: JSON.stringify(payload),
-  });
-  let body: unknown = null;
-  try {
-    body = await res.json();
-  } catch {
-    body = null;
-  }
-  return { ok: res.status === 200 || res.status === 201, status: res.status, body };
+  }, async (res) => {
+    const text = await res.text();
+    let body: unknown = null;
+    try { body = JSON.parse(text); }
+    catch (error) { if (!(error instanceof SyntaxError)) throw error; }
+    return { ok: res.status === 200 || res.status === 201, status: res.status, body };
+  }, signal);
 }
 
 export interface SessionListItem {
@@ -158,6 +174,7 @@ export interface SessionListItem {
 export async function listSessions(
   config: SessionHubConfig,
   filters: { agent: string; machine: string; source_id: string },
+  signal?: AbortSignal,
 ): Promise<SessionListItem[]> {
   const qs = new URLSearchParams({
     agent: filters.agent,
@@ -165,15 +182,18 @@ export async function listSessions(
     source_id: filters.source_id,
     limit: "10",
   });
-  const res = await request(config, `/v1/sessions?${qs.toString()}`, { method: "GET" });
-  if (!res.ok) throw new Error(`list sessions failed: ${res.status}`);
-  const body = (await res.json()) as { total?: number; items?: SessionListItem[] };
-  return Array.isArray(body.items) ? body.items : [];
+  return withResponse(config, `/v1/sessions?${qs.toString()}`, { method: "GET" }, async (res) => {
+    if (!res.ok) throw new Error(`list sessions failed: ${res.status}`);
+    const body = (await res.json()) as { total?: number; items?: SessionListItem[] };
+    return Array.isArray(body.items) ? body.items : [];
+  }, signal);
 }
 
-export async function deleteSession(config: SessionHubConfig, id: string): Promise<boolean> {
-  const res = await request(config, `/v1/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
-  return res.ok;
+export async function deleteSession(config: SessionHubConfig, id: string, signal?: AbortSignal): Promise<boolean> {
+  return withResponse(config, `/v1/sessions/${encodeURIComponent(id)}`, { method: "DELETE" }, async (res) => {
+    await res.arrayBuffer();
+    return res.ok;
+  }, signal);
 }
 
 export interface DeleteMirrorResult {
@@ -185,11 +205,12 @@ export async function mirrorDelete(
   config: SessionHubConfig,
   machine: string,
   sourceId: string,
+  signal?: AbortSignal,
 ): Promise<DeleteMirrorResult> {
-  const items = await listSessions(config, { agent: AGENT_ID, machine, source_id: sourceId });
+  const items = await listSessions(config, { agent: AGENT_ID, machine, source_id: sourceId }, signal);
   let deleted = 0;
   for (const item of items) {
-    if (await deleteSession(config, item.id)) deleted++;
+    if (await deleteSession(config, item.id, signal)) deleted++;
   }
   return { found: items.length, deleted };
 }
@@ -319,8 +340,40 @@ export const sessionHubPlugin: Plugin = async (input: PluginInput) => {
   const machine = hostname();
   await log("info", `session-hub: enabled baseUrl=${config.baseUrl} machine=${machine}`);
   const pending = new Map<string, ReturnType<typeof setTimeout>>();
+  const deleted = new Set<string>();
+  const uploads = new Map<string, Promise<UploadResult>>();
+  const deletions = new Set<Promise<unknown>>();
+  const reading = new Set<string>();
+  const rerun = new Set<string>();
+  let disposed = false;
+  const lifecycle = new AbortController();
+
+  const startMirrorDelete = (sourceId: string) => {
+    const task = Promise.resolve(uploads.get(sourceId))
+      .catch(() => undefined)
+      .then(() => (disposed ? { found: 0, deleted: 0 } : mirrorDelete(config, machine, sourceId, lifecycle.signal)))
+      .then((r) => {
+        if (disposed) return;
+        return log("info", `session-hub: delete mirror source_id=${sourceId} found=${r.found} deleted=${r.deleted}`);
+      })
+      .catch((err: unknown) => {
+        if (disposed) return;
+        return log(
+          "error",
+          `session-hub: delete mirror failed source_id=${sourceId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
+    deletions.add(task);
+    void task.then(
+      () => { deletions.delete(task); },
+      () => { deletions.delete(task); },
+    );
+  };
 
   const syncSession = (sourceId: string) => {
+    if (disposed || deleted.has(sourceId)) return;
+    if (reading.has(sourceId)) { rerun.add(sourceId); return; }
+    reading.add(sourceId);
     void (async () => {
       try {
         const got = await api.session.get({ path: { id: sourceId } });
@@ -329,27 +382,38 @@ export const sessionHubPlugin: Plugin = async (input: PluginInput) => {
         const msgs = await api.session.messages({ path: { id: sourceId } });
         const messages = extractMessages(msgs.data);
         if (messages === null) throw new Error("messages unavailable");
+        if (disposed || deleted.has(sourceId)) return;
         const payload = transformSession(info, messages, machine);
-        const result = await uploadSession(config, payload);
+        const upload = uploadSession(config, payload, lifecycle.signal);
+        uploads.set(sourceId, upload);
+        let result: UploadResult;
+        try { result = await upload; }
+        finally { if (uploads.get(sourceId) === upload) uploads.delete(sourceId); }
         await log(
           result.ok ? "info" : "error",
           `session-hub: sync session=${sourceId} status=${result.status} messages=${payload.messages.length}`,
         );
       } catch (err) {
+        if (disposed) return;
         await log(
           "error",
           `session-hub: sync failed session=${sourceId}: ${err instanceof Error ? err.message : String(err)}`,
         );
+      } finally {
+        reading.delete(sourceId);
+        if (rerun.delete(sourceId)) syncSession(sourceId);
       }
     })();
   };
 
   return {
     event: async ({ event }) => {
+      if (disposed) return;
       const classified = classifyEvent(event);
       if (!classified) return;
       if (classified.type === "session.idle") {
         const sourceId = classified.source_id;
+        if (deleted.has(sourceId)) return;
         const existing = pending.get(sourceId);
         if (existing !== undefined) clearTimeout(existing);
         pending.set(
@@ -361,24 +425,19 @@ export const sessionHubPlugin: Plugin = async (input: PluginInput) => {
         );
       } else {
         const sourceId = classified.source_id;
-        void mirrorDelete(config, machine, sourceId)
-          .then((r) =>
-            void log(
-              "info",
-              `session-hub: delete mirror source_id=${sourceId} found=${r.found} deleted=${r.deleted}`,
-            ),
-          )
-          .catch((err) =>
-            void log(
-              "error",
-              `session-hub: delete mirror failed source_id=${sourceId}: ${err instanceof Error ? err.message : String(err)}`,
-            ),
-          );
+        deleted.add(sourceId);
+        const existing = pending.get(sourceId);
+        if (existing !== undefined) clearTimeout(existing);
+        pending.delete(sourceId);
+        startMirrorDelete(sourceId);
       }
     },
     dispose: async () => {
+      disposed = true;
+      lifecycle.abort();
       for (const timer of pending.values()) clearTimeout(timer);
       pending.clear();
+      await Promise.allSettled([...uploads.values(), ...deletions.values()]);
     },
   };
 };

@@ -12,7 +12,7 @@
     "dev:web": "npm run dev -w @session-hub/web",
     "start": "npm run build && node server/apps/server/dist/index.js",
     "reindex": "npm run build -w @session-hub/shared && tsx server/apps/server/src/scripts/reindex.ts",
-    "build": "tsc -b && npm run typecheck -w @session-hub/opencode-plugin && npm run typecheck -w @session-hub/zcode-plugin && npm run typecheck -w @session-hub/hermes-plugin && npm run typecheck -w @session-hub/collector && npm run typecheck -w @session-hub/dsh-plugin && npm run typecheck -w @session-hub/claude-code-plugin && npm run build -w @session-hub/dsh-plugin && npm run build -w @session-hub/web && npm run build -w @session-hub/claude-code-plugin",
+    "build": "tsc -b && npm run typecheck -w @session-hub/opencode-plugin && npm run build -w @session-hub/opencode-plugin && npm run typecheck -w @session-hub/zcode-plugin && npm run typecheck -w @session-hub/hermes-plugin && npm run typecheck -w @session-hub/collector && npm run typecheck -w @session-hub/dsh-plugin && npm run typecheck -w @session-hub/claude-code-plugin && npm run build -w @session-hub/dsh-plugin && npm run build -w @session-hub/web && npm run build -w @session-hub/claude-code-plugin",
     "install:plugin": "node plugins/opencode/scripts/install.mjs",
     "install:zcode-plugin": "node plugins/zcode/scripts/install.mjs",
     "install:hermes-plugin": "node plugins/hermes/scripts/install.mjs",
