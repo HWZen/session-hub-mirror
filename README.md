@@ -8,7 +8,7 @@
 
 作者尝试 OpenViking 后，认为其个人数据导向，以及会话向量索引在自己环境中的资源需求与检索效果，不满足这项需求，因此选择构建专注于会话消息的平台。这是个人环境中的选型经验。
 
-## 两个工作流
+## 使用场景实例
 
 ### 昨天在 A 安装，今天在 B 复用
 
@@ -59,7 +59,7 @@ Agent hooks / plugins / backfill
 | Codex | Stop hook | rollout JSONL CLI | 当前不支持 |
 | WorkBuddy | Stop / SessionEnd | JSONL CLI | 当前不支持 |
 
-豆包为实验方向，当前没有可用采集适配器。宿主格式与 API 会变化，兼容范围及限制见各安装说明。
+豆包为实验方向，当前没有可用采集适配器。宿主格式与 API 会变化，兼容范围及限制见[各安装说明](plugins/README.md)。
 
 ## 安装与使用
 
@@ -76,10 +76,12 @@ npm run dev
 
 `GET http://127.0.0.1:7428/health` 检查服务；`/v1/*` 使用 Bearer token。Embedding 默认未启用，先配置兼容提供商；上传、列表、详情和 grep 可独立使用。
 
-- [服务端、自托管、前端、Embedding 与备份](server/README.md)
-- [全部采集来源安装、配置、回填与排障](plugins/README.md)
-- [WorkBuddy 配置](apps/collector/README.md)
-- [消费 Agent Skill 安装](skills/session-hub/README.md) · [操作契约](skills/session-hub/SKILL.md)
+## 文档
+
+- [服务端](server/README.md)：自托管、Web 前端、Embedding 与备份
+- [采集插件](plugins/README.md)：各来源的安装、配置、回填与排障
+- [WorkBuddy 采集器](apps/collector/README.md)：hook 配置
+- [消费 Agent Skill](skills/session-hub/README.md)：安装与用法 · [操作契约](skills/session-hub/SKILL.md)
 
 ## 开发
 
