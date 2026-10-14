@@ -38,7 +38,7 @@
 | 时间戳 | 每会话存**创建时间 + 最后修改时间**（取源数据时间，非上传时间） | |
 | 元数据 | agent、machine（主机名）、title、cwd/项目路径（可选，有就传） | opencode 自带 directory；WorkBuddy JSONL 自带 cwd |
 | 消费粒度 | 检索定位（对话索引）+ 全量下载提取（skill 代码在工具产出里，靠详情接口拿） | 查找与提取分离 |
-| 部署/隐私 | 单人自托管、明文存储、固定 token；代码以 MIT 许可证公开，个人生产实例与真实会话数据保持私有；公开前审查完整 Git 历史及发布资产（2026-10-14 定） | 优先保留原仓库提交历史；若历史脱敏成本过高，则建立脱敏公开仓库。公开准备见 `server/develop-doc/0.23.0/plan.md` |
+| 部署/隐私 | 单人自托管、明文存储、固定 token；代码以 MIT 许可证公开，个人生产实例与真实会话数据保持私有；公开前审查完整 Git 历史及发布资产 | 开源入口为 `https://github.com/HWZen/session-hub-mirror`，保留已脱敏的提交历史与原始时间。公开准备见 `server/develop-doc/0.23.0/plan.md` |
 | 数据存放 | 自托管服务器本地盘；每个实例使用独立数据库路径。网络文件系统须验证锁可靠性，禁止 WAL | |
 | 向量模型 | 模型不再全局锁死，**按提供商配置**（provider 级 `model` 字段，默认 `bge-m3`）；**活跃模型** = weight 最高的已启用 provider 的模型；索引与语义检索只使用活跃模型的向量空间；failover 候选**仅限与活跃模型相同的 provider**（"降级只换谁在算，不换算什么"沿用）；切换模型 = 切换向量空间，旧空间数据保留但检索不可见，需对活跃模型重新索引；**不引入"最大上下文"配置**（切片级 embedding，超限由提供商报错自然暴露） | 向量表按模型分表；维度为运行时事实，不再全局常量；2026-09-05 变更（起因：本地 Ollama 透 qwen3-embedding 服务，模型需可配） |
 | 索引粒度 | **切片（chunk）级**：对消息 `text` 与从 `raw` 抽取的 `reasoning` 分别切片建向量（默认 ~1200 字符、重叠 15%），检索片段标注来源 `text`/`reasoning`；重建入口不变（删旧向量表全量重算）；**仅 `title`** 并入会话**首个切片**的 embedding 输入（`message_chunks.text` 存储仍为原始切片文本）；`cwd`/`agent`/`machine`/`source_id` 仅作 `sessions` 结构化过滤维度，不入向量 | 向量表按模型分表，前缀 `chunk_embeddings_<slug>`（切片表 `message_chunks`）；2026-09-10 变更（起因：一消息一向量稀释稀有条目，且 reasoning 未入索引）；2026-09-11 变更（元数据可被语义召回）；2026-09-12 变更（全字段 header 无区分度，探针量化后收窄为仅 title，见 `server/develop-doc/0.17.0/probe/result.md`） |

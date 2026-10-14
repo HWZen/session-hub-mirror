@@ -63,9 +63,11 @@ Agent hooks / plugins / backfill
 
 ## 安装与使用
 
-建议 Node.js 22.13+ LTS 与 npm 10+。从仓库根目录：
+建议 Node.js 22.13+ LTS 与 npm 10+。克隆开源仓库后，从仓库根目录运行：
 
 ```sh
+git clone https://github.com/HWZen/session-hub-mirror.git
+cd session-hub-mirror
 npm ci
 # 将 server/.env.example 复制为 server/.env
 # 设置随机 SH_AUTH_TOKEN 与独立 SH_DB_PATH
