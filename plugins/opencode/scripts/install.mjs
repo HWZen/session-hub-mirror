@@ -1,24 +1,15 @@
-import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { build } from "esbuild";
+import { join, resolve } from "node:path";
+import { buildBundle } from "./build.mjs";
 
-const entry = fileURLToPath(new URL("../src/entry.ts", import.meta.url));
-const targetDir = join(homedir(), ".config", "opencode", "plugins");
-const target = join(targetDir, "session-hub.js");
+function installTarget(args) {
+  if (args.length === 0) return join(homedir(), ".config", "opencode", "plugins", "session-hub.js");
+  if (args.length === 2 && args[0] === "--target" && args[1]) return resolve(args[1]);
+  if (args.length === 1 && args[0]?.startsWith("--target=") && args[0].length > 9) {
+    return resolve(args[0].slice(9));
+  }
+  throw new Error("用法: node scripts/install.mjs [--target <path>]");
+}
 
-mkdirSync(targetDir, { recursive: true });
-await build({
-  entryPoints: [entry],
-  bundle: true,
-  format: "esm",
-  platform: "neutral",
-  target: "es2022",
-  external: ["node:*"],
-  outfile: target,
-  sourcemap: false,
-  minify: false,
-  legalComments: "none",
-});
+const target = await buildBundle({ outfile: installTarget(process.argv.slice(2)) });
 console.log(`session-hub plugin installed: ${target}`);

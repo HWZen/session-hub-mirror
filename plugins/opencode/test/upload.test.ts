@@ -69,6 +69,93 @@ function samplePayload(): TransformedSession {
   );
 }
 
+async function withStalledBody(run: (config: SessionHubConfig, started: Promise<void>) => Promise<void>): Promise<void> {
+  let start!: () => void;
+  const started = new Promise<void>((resolve) => { start = resolve; });
+  const stalled = createServer(async (req, res) => {
+    for await (const _ of req) { /* consume synthetic request */ }
+    res.writeHead(200, { "content-type": "application/json" });
+    res.write('{"items":[');
+    start();
+  });
+  await new Promise<void>((resolve) => stalled.listen(0, "127.0.0.1", resolve));
+  const address = stalled.address();
+  if (!address || typeof address === "string") throw new Error("missing loopback address");
+  try {
+    await run({ baseUrl: `http://127.0.0.1:${address.port}`, token: "synthetic-body-test", timeoutMs: 100 }, started);
+  } finally {
+    stalled.closeAllConnections();
+    await new Promise<void>((resolve) => stalled.close(() => resolve()));
+  }
+}
+
+const bodyOperations = [
+  { method: "PUT", run: (cfg: SessionHubConfig, signal?: AbortSignal) => uploadSession(cfg, samplePayload(), signal) },
+  { method: "GET", run: (cfg: SessionHubConfig, signal?: AbortSignal) => listSessions(cfg, { agent: "opencode", machine: "M1", source_id: "ses_1" }, signal) },
+  { method: "DELETE", run: (cfg: SessionHubConfig, signal?: AbortSignal) => deleteSession(cfg, "uuid-1", signal) },
+];
+
+async function outcomeWithin(work: Promise<unknown>, ms: number): Promise<string> {
+  let timer!: ReturnType<typeof setTimeout>;
+  try {
+    return await Promise.race([
+      work.then(() => "resolved", (error: unknown) => error instanceof Error ? error.name : "rejected"),
+      new Promise<string>((resolve) => { timer = setTimeout(() => resolve("pending"), ms); }),
+    ]);
+  } finally { clearTimeout(timer); }
+}
+
+async function withDestroyedBody(run: (config: SessionHubConfig, started: Promise<void>) => Promise<void>): Promise<void> {
+  let start!: () => void;
+  const started = new Promise<void>((resolve) => { start = resolve; });
+  const truncated = createServer(async (req, res) => {
+    for await (const _ of req) { /* consume synthetic request */ }
+    res.writeHead(201, { "content-type": "application/json" });
+    res.write('{"id":"uuid-1",');
+    start();
+    setTimeout(() => res.destroy(), 40);
+  });
+  await new Promise<void>((resolve) => truncated.listen(0, "127.0.0.1", resolve));
+  const address = truncated.address();
+  if (!address || typeof address === "string") throw new Error("missing loopback address");
+  try {
+    await run({ baseUrl: `http://127.0.0.1:${address.port}`, token: "synthetic-truncated-test", timeoutMs: 2000 }, started);
+  } finally {
+    truncated.closeAllConnections();
+    await new Promise<void>((resolve) => truncated.close(() => resolve()));
+  }
+}
+
+describe("HTTP response body lifecycle", () => {
+  it("does not swallow a mid-body transport failure as a null-body success", async () => {
+    await withDestroyedBody(async (cfg, started) => {
+      const work = uploadSession(cfg, samplePayload());
+      await started;
+      const outcome = await outcomeWithin(work, 1500);
+      expect(outcome).not.toBe("resolved");
+      expect(outcome).not.toBe("pending");
+    });
+  });
+  it.each(bodyOperations)("$method times out after headers when the JSON body never finishes", async ({ run }) => {
+    await withStalledBody(async (cfg, started) => {
+      const work = run(cfg);
+      await started;
+      expect(await outcomeWithin(work, 600)).toBe("AbortError");
+    });
+  });
+
+  it.each(bodyOperations)("$method rejects lifecycle cancellation during a stalled JSON body", async ({ run }) => {
+    await withStalledBody(async (cfg, started) => {
+      const controller = new AbortController();
+      const work = run({ ...cfg, timeoutMs: 2000 }, controller.signal);
+      await started;
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+      controller.abort();
+      expect(await outcomeWithin(work, 600)).toBe("AbortError");
+    });
+  });
+});
+
 describe("uploadSession", () => {
   it("PUTs Bearer-authenticated JSON to /v1/sessions", async () => {
     const result = await uploadSession(config, samplePayload());
@@ -81,6 +168,14 @@ describe("uploadSession", () => {
     expect(req.headers["authorization"]).toBe("Bearer test-token");
     expect(req.headers["content-type"]).toBe("application/json");
     expect(req.body).toMatchObject({ agent: "opencode", machine: "M1", source_id: "ses_1" });
+  });
+
+  it("rejects before sending when its lifecycle signal is aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const previousCount = captured.length;
+    await expect(uploadSession(config, samplePayload(), controller.signal)).rejects.toMatchObject({ name: "AbortError" });
+    expect(captured).toHaveLength(previousCount);
   });
 
   it("reports server errors as not ok", async () => {
@@ -106,6 +201,14 @@ describe("mirrorDelete", () => {
     expect(delReq.method).toBe("DELETE");
     expect(delReq.url).toBe("/v1/sessions/uuid-1");
     expect(delReq.headers["authorization"]).toBe("Bearer test-token");
+  });
+
+  it("does not start mirror deletion after lifecycle cancellation", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const previousCount = captured.length;
+    await expect(mirrorDelete(config, "M1", "ses_1", controller.signal)).rejects.toMatchObject({ name: "AbortError" });
+    expect(captured).toHaveLength(previousCount);
   });
 
   it("reports zero deletions on empty list", async () => {
