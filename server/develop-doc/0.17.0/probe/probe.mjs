@@ -7,7 +7,7 @@ import { extractReasoning } from "../../../apps/server/src/indexing/raw-extract.
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(HERE, "data");
 const SESSIONS_PATH = path.join(DATA_DIR, "sessions.json");
-const QUERIES_PATH = path.join(HERE, "queries.json");
+const QUERIES_PATH = process.env.SH_PROBE_QUERIES_FILE ? path.resolve(process.env.SH_PROBE_QUERIES_FILE) : path.join(HERE, "queries.json");
 const RESULT_MD_PATH = path.join(HERE, "result.md");
 const RESULT_JSON_PATH = path.join(HERE, "result.json");
 
@@ -48,6 +48,7 @@ async function apiGet(url) {
 }
 
 async function fetchCorpus() {
+  if (CORPUS_SOURCE_IDS.length === 0) throw new Error("SH_PROBE_SOURCE_IDS must select a private corpus");
   if (BASE_URL === "" || TOKEN === "") {
     throw new Error("SH_REMOTE_BASE_URL / SH_REMOTE_TOKEN 必须设置");
   }
