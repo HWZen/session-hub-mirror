@@ -28,7 +28,7 @@
 - 单产物验证：Node ESM 直接 import 成功，仅 default 导出，`id=session-hub`，`server`（V1）与 `setup`（V2）双形态；仅 4 个 `node:` 内建 external，无宿主侧额外安装要求。
 - **V2 全量 E2E（opencode-v2-isolated.exe 2.0.26）：30/30 全绿**。数据点：事件 912（35 类，含执行终态、删除、compaction 全链）、模型调用 74、PUT 22、镜像记录 1；长历史 215 条 / 3 页在单次快照中逐条一致；compaction + synthetic + reasoning + tool 覆盖齐全；删除与在途上传竞争不复活；上传 500 可诊断且插件保持 active；reload 前后 PUT 数 3/3/3 不增长并回归规范 SHA。
 - **V2 smoke（执行终态→PUT→字段保真→删除）：20/20 全绿**。
-- **V1 全量 E2E（opencode-v1-isolated.exe）：37 断言 35 通过**，2 项失败为宿主二进制环境性阻塞（`2.model-round-status`、`3.tool-part-coverage`，根因 `MODEL-ROUND-UNREACHABLE`：宿主在组装系统提示时抛 `TypeError`，与插件无关，见 `e2e-v1/report.json` blockers）；结果 `green-except-environmental-blockers`。本次新增的 abort/dispose/delete/reload 用例在 V1 全部通过。
+- **V1 全量 E2E：37 断言 35 通过**，2 项失败受宿主系统提示组装 TypeError 阻塞（`2.model-round-status`、`3.tool-part-coverage`）。abort/dispose/delete/reload 用例通过，历史验收摘要见 `acceptance.md`。
 - 现役未触碰：三个部署文件运行前后 SHA 一致；宿主/mock/沙箱全部清场（hostExited、mockClosed、sandboxRemoved 均为 true）。
 
 ## 验收命令（worktree：`.worktrees/0.2.x-opencode-plugin-dev/plugins/opencode`）
@@ -39,7 +39,7 @@ npx tsx scripts/acceptance/e2e-v2.ts C:/Users/example-user/miniconda3/python.exe
 npx tsx scripts/acceptance/e2e-v1.ts                                                    # V1 全量
 ```
 
-证据目录：`develop-doc/0.2.0/e2e-v2/`、`e2e-v2-smoke/`、`e2e-v1/`（report.json 为断言与清场事实源）。
+公开验收摘要见 `acceptance.md`；原始证据由验收者私有保管。
 
 ## 遗留事项
 

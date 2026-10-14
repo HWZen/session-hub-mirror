@@ -12,7 +12,7 @@
 - 探针（`develop-doc/0.17.0/probe/`）：
   - `probe.mjs`：`fetch`（远程 `/v1/sessions`+`/full` 只读拉取）与 `run`（复刻索引：直接复用 `chunk.ts` / `raw-extract.ts` 纯函数；V0 纯正文 / V1 全字段 header / V2 仅标题 header）；连接信息走环境变量。
   - `queries.json`：26 条 query，覆盖标题原文 / 标题改写 / 正文改写 / 路径+语义 / 唯一标识符 / 跨会话同主题。
-  - `result.md`（汇总 + 分类汇总 + 逐条对比 + 结论）、`result.json`（原始指标）。
+   - `result.md` 保留聚合指标与结论；原始指标私有保管。
   - `data/sessions.json`：60 个会话，本地 gitignore（`probe/.gitignore`）。
 - 根 `plan.md` §3「索引粒度」：改为仅 `title` 并入首切片 embedding 输入，`cwd`/`agent`/`machine`/`source_id` 仅作结构化过滤维度；备注追加 2026-09-12 变更与探针结果路径。
 
@@ -22,7 +22,7 @@
 - 全局：V2 R@1 80.8% / R@5 88.5% / MRR@10 0.842 / 目标平均距离 0.185 / MISS 1；V1 76.9% / 88.5% / 0.826 / 0.196 / 1；V0 69.2% / 84.6% / 0.733 / 0.215 / 4。
 - 标题类（12 条）：V2 R@1 83.3% / MRR 0.868 > V1 75.0% / 0.822 > V0 58.3% / 0.673；路径类（2 条）：V2 MRR 0.571 > V1 0.556 > V0 0.500，R@1/R@5 持平。
 - 唯一回退点（正文改写 1 条，V2 第 3 / V1 第 2）均命中 Recall@5 且距离几乎相同（0.277 / 0.274）；唯一标识符 query 三变体同 MISS。
-- 满足 plan §4 判定条件，采纳仅标题方案。明细见 `probe/result.md`、`probe/result.json`。
+- 满足 plan §4 判定条件，采纳仅标题方案。聚合结果见 `probe/result.md`。
 
 ## 与计划的偏差及原因
 
@@ -39,7 +39,7 @@
   - `0006` 后：无 `chunk_embeddings_%` 表、`message_chunks` = 0、全部会话 `indexed_at/indexed_model` = NULL。
   - `npm run reindex`：156/156 索引成功（provider 5070ti-frp）。
   - `GET /v1/stats`：`{"sessions":156,"indexed":156,"unindexed":0}`。
-- 探针验收：`probe/result.md` 含三变体逐条 query 排名/距离 + R@1/R@5 / MRR@10 / 目标平均距离 / MISS 对比与明确结论。
+- 探针验收：`probe/result.md` 保留三变体 R@1/R@5 / MRR@10 / 目标平均距离 / MISS 对比与结论。
 
 ## 遗留事项
 

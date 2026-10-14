@@ -39,32 +39,31 @@
 | 元数据 | agent、machine（主机名）、title、cwd/项目路径（可选，有就传） | opencode 自带 directory；WorkBuddy JSONL 自带 cwd |
 | 消费粒度 | 检索定位（对话索引）+ 全量下载提取（skill 代码在工具产出里，靠详情接口拿） | 查找与提取分离 |
 | 部署/隐私 | 单人自托管、明文存储、固定 token；代码以 MIT 许可证公开，个人生产实例与真实会话数据保持私有；公开前审查完整 Git 历史及发布资产（2026-10-14 定） | 优先保留原仓库提交历史；若历史脱敏成本过高，则建立脱敏公开仓库。公开准备见 `server/develop-doc/0.23.0/plan.md` |
-| 数据存放 | **服务器本地盘**（2026-09-06 变更：部署进服务器 WSL，数据落 Windows D 盘 NTFS；2026-09-17 从 WSL1 Ubuntu-20.04 迁移至 WSL2 Ubuntu-26.04，数据仍在 D 盘原地）；NAS SMB 方案暂缓，恢复 NAS 时仍须禁用 WAL（见 §9 风险） | |
+| 数据存放 | 自托管服务器本地盘；每个实例使用独立数据库路径。网络文件系统须验证锁可靠性，禁止 WAL | |
 | 向量模型 | 模型不再全局锁死，**按提供商配置**（provider 级 `model` 字段，默认 `bge-m3`）；**活跃模型** = weight 最高的已启用 provider 的模型；索引与语义检索只使用活跃模型的向量空间；failover 候选**仅限与活跃模型相同的 provider**（"降级只换谁在算，不换算什么"沿用）；切换模型 = 切换向量空间，旧空间数据保留但检索不可见，需对活跃模型重新索引；**不引入"最大上下文"配置**（切片级 embedding，超限由提供商报错自然暴露） | 向量表按模型分表；维度为运行时事实，不再全局常量；2026-09-05 变更（起因：本地 Ollama 透 qwen3-embedding 服务，模型需可配） |
 | 索引粒度 | **切片（chunk）级**：对消息 `text` 与从 `raw` 抽取的 `reasoning` 分别切片建向量（默认 ~1200 字符、重叠 15%），检索片段标注来源 `text`/`reasoning`；重建入口不变（删旧向量表全量重算）；**仅 `title`** 并入会话**首个切片**的 embedding 输入（`message_chunks.text` 存储仍为原始切片文本）；`cwd`/`agent`/`machine`/`source_id` 仅作 `sessions` 结构化过滤维度，不入向量 | 向量表按模型分表，前缀 `chunk_embeddings_<slug>`（切片表 `message_chunks`）；2026-09-10 变更（起因：一消息一向量稀释稀有条目，且 reasoning 未入索引）；2026-09-11 变更（元数据可被语义召回）；2026-09-12 变更（全字段 header 无区分度，探针量化后收窄为仅 title，见 `server/develop-doc/0.17.0/probe/result.md`） |
-| 向量提供商 | **配置文件驱动**；优先级链：5070Ti(frp) → 4070Ti(frp) → 云端(待填，可走 new-api 网关)；**不再内置本地 CPU 兜底**（2026-09-05 变更：服务器 i3+16G 跑不动 fp32 bge-m3，实测峰值 20G+ 内存）；本地推理服务（Ollama/llama.cpp 等）如需要，按普通 OpenAI 兼容 provider 配置即可 | 健康检查 + 自动降级；降级只换"谁在算"，不换"算什么"（候选集限同模型，见"向量模型"行）；未配置任何可用提供商时 health 返回警告、索引/搜索报错，不静默兜底；Web 设置页可编辑（配地址/密钥/模型/权重/开关/超时），写 `config/providers.local.json`（gitignore，优先于样例文件），保存即热更新 |
-| 技术栈 | TypeScript / Node.js（唯一语言）+ Hono + SQLite + sqlite-vec | **不用 Docker**；Caddy + NSSM 属 P4 公网化（暂缓），当前 WSL2 内 systemd 托管（`session-hub.service`，Windows 登录计划任务拉起 distro） |
+| 向量提供商 | 配置文件驱动，weight 决定优先级；本地与远程 OpenAI 兼容 embedding 服务均按 provider 配置 | 健康检查、同模型自动降级、恢复回升；无可用提供商时显式警告。Web 设置页保存 local 配置并热更新 |
+| 技术栈 | TypeScript / Node.js + Hono + SQLite + sqlite-vec | 源码自托管，按部署环境使用 systemd 或 NSSM |
 | 端范围 | 多台 Windows PC；手机不做；网页端/非 Agent 数据不做 | |
 | v1 信息源 | OpenCode、ZCode、WorkBuddy、Hermes、DSH、Claude Code、Codex；豆包为实验方向 | 各来源能力见安装文档 |
-| opencode 历史回填 | 做（本机已有 117 会话） | |
+| OpenCode 历史回填 | V1 SQLite CLI；V2 插件启动扫描 | |
 | 更新/删除策略 | 跟随本地：本地改动/删除即同步（镜像语义），待实现时再细化 | |
 | 时效性 | 钩子源准实时；轮询源分钟级 | |
 
-## 4. 侦察事实（2026-09-05，机器 WORKSTATION-A）
+## 4. 来源接口与适配事实
 
 ### opencode ✅
 - 存储：`~/.local/share/opencode/opencode.db`（SQLite）
 - 表：`session` / `message`（`data` JSON）/ `part`（工具产出，`data` JSON）等
-- 本机数据量：117 会话 / 3574 消息 / 14406 part
 - `session` 表自带 `directory`（工作目录）、`title`、`time_created`、`time_updated`、`model`、tokens 等
 - 采集路线：**官方 TS 插件事件系统**（实时）；直读 DB 作兜底/回填
 
 ### WorkBuddy ✅
 - 存储：`~/.workbuddy/projects/*/*.jsonl`（Claude Code 式 JSONL）
-- 记录字段：`type`（`message`/`ai-title`）、`sessionId`、`timestamp`(ms)、`role`、`content[]`（`input_text`/`output_text`/`text`）、`cwd`；行结构扁平（role/content/timestamp 在行顶层，2026-09-08 WORKSTATION-B 实测）
-- 注意：用户真实输入在 `<user_query>` 标签内，需过滤 `<system-reminder` 注入（参考 `D:\temp\session_daily.py`）；`type:"ai-title"` 行带 `aiTitle`（官方 AI 标题），做 title 首选
+- 记录字段：`type`（`message`/`ai-title`）、`sessionId`、`timestamp`(ms)、`role`、`content[]`（`input_text`/`output_text`/`text`）、`cwd`；role/content/timestamp 位于行顶层
+- 注意：用户真实输入在 `<user_query>` 标签内，需过滤 `<system-reminder` 注入；`type:"ai-title"` 行带 `aiTitle`，做 title 首选
 - 兜底：`~/.workbuddy/workbuddy.db`（SQLite，`sessions` 表）
-- 采集路线：**hook 实时推送为主**（Stop + SessionEnd 挂 `~/.workbuddy/settings.json`，适配器在 `apps/collector`，0.1.0 已落地并本机实测）；文件直读作兜底/回填
+- 采集路线：Stop + SessionEnd 配置在 `~/.workbuddy/settings.json`；适配器在 `apps/collector`，JSONL 直读回填
 
 ### 豆包 ⚠️（实验性）
 - 存储：`%LOCALAPPDATA%\Doubao\User Data\Default\IndexedDB\chrome_doubao-chat_0.indexeddb.leveldb`（~2.1MB）+ 同名 `.blob`（~1.15MB）
@@ -110,9 +109,11 @@
 - 官方声明 transcript 格式不是稳定 hook 接口，适配器必须用 fixture 覆盖当前格式并保留兼容 fallback
 - 采集路线：插件 `Stop` hook 触发 detached worker，对 `transcript_path` 做逐轮全量 upsert；扫描 sessions JSONL 做历史回填；插件档 `plugins/codex/develop-doc/0.1.0/plan.md`
 
-### 自托管环境
-
-用户自行部署服务、数据库与 embedding provider；实例数据目录独立，远程访问使用 HTTPS。
+### 自托管
+- 服务和数据库由用户自行部署，生产实例与个人会话保持私有。
+- Node 服务默认绑定 loopback；远程访问使用 HTTPS 反向代理。
+- 本地或远程 embedding 都通过 provider 配置接入；各实例数据目录隔离。
+- 可复用安装、启动、备份与验证步骤见 `server/README.md`。
 
 ## 5. 系统架构
 
@@ -181,7 +182,7 @@ messages / parts                -- 全量原文（JSON 存储或子表，实施�
 | SQLite WAL 在 SMB 上有损坏风险（文件锁不可靠） | **禁用 WAL**：`journal_mode=TRUNCATE`（或 DELETE）+ `synchronous=FULL`；单人低写入量可接受；出现锁问题再回退本地盘 |
 | 豆包解析随版本更新失效 | 定位为实验性，独立模块、可整体停用；能采多少是多少 |
 | Codex rollout transcript 格式变更 | 官方已声明格式不稳定；适配器用真实 fixture、主/兼容双路径、未知事件宽容与解析统计隔离变化 |
-| WorkBuddy 格式未经另一台机器实测 | 2026-09-08 已在本机（WORKSTATION-B）实测并修正解析器；其他机器/版本以实机样本为准，采集器做好格式容错 |
+| WorkBuddy 格式受宿主版本影响 | 解析器通过 fixture 锁定已知格式，其他机器与版本以实机样本为准 |
 | 提供商切换导致向量空间不一致 | 向量表按模型分表；failover 候选仅限同模型 provider；会话记录 `indexed_model`，检索只查活跃模型空间；切换后旧空间会话自动进入待索引队列（`indexed_model != 活跃模型` 即视为未索引） |
 | 档案库成为"历史秘密集中地" | 现在不做；后期可在**采集端**加脱敏（客户端职责，不违反系统零加工原则） |
 | 数据只有 NAS 一份（用户决定不备份） | 接受；SQLite `integrity_check` 可作为日常健康检查项 |

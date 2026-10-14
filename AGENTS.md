@@ -72,9 +72,10 @@ server/               # 服务端子系统
   data/               #   运行时数据（db、模型缓存、日志，gitignore）
 skills/session-hub/   # Agent Skill（SKILL.md：教外部 Agent 直调 HTTP API；接口动态发现不固化）
 plugins/hermes/      # Hermes Shell hooks 插件（0.1.0：post_api_request+会话终结实时上报 + state.db 回填）
-plugins/opencode/     # opencode 官方插件（TS，事件钩子上传；未建）
+plugins/opencode/     # OpenCode V1/V2 插件（实时采集、删除镜像、历史回填）
 plugins/dsh/          # DSH Cordis Host bundle（TS 构建 ESM，持久 SessionEvent 镜像）
 plugins/claude-code/  # Claude Code 采集插件（0.1.0：hook 实时上报 + 历史回填）
+plugins/codex/        # Codex Stop hook + rollout 历史回填
 apps/collector/       # 采集器子系统（WorkBuddy hook 适配器已建；豆包适配器待建）
 docs/                 # 运行手册（后期）
 ```
@@ -107,13 +108,13 @@ docs/                 # 运行手册（后期）
   WorkBuddy 是 OpenAI Responses 风格（`input_text` / `output_text` + 独立 `reasoning` 行，无 role，
   需采集器自行挂到消息 raw 并归一成 `{type:"reasoning", text}`）。
 - 思考仅提供加密/摘要而无明文时，适配器需评估其索引价值并记录（无明文则跳过）。
-- Hermes 无逐消息 reasoning 持久化（仅 tokens 统计）→ 不产出 reasoning part，属合法"无明文跳过"场景。
+- Hermes 无逐消息 reasoning 持久化（仅 tokens 统计），不产出 reasoning part。
 - 现有实现参考：`server/apps/server/src/indexing/raw-extract.ts`（归一化）、
   `plugins/opencode`、`plugins/zcode`、`plugins/hermes`、`plugins/dsh`、`apps/collector`。
 
 ## Embedding 提供商链
 
-优先级（配置文件驱动）：`5070Ti(frpc) → 4070Ti(frpc) → 云端(待填)`；**无内置本地兜底**，本地推理服务（Ollama 等）按普通 OpenAI 兼容 provider 配置。
+优先级由 provider weight 配置；本地与远程 OpenAI 兼容 embedding 服务均通过 provider 配置接入。
 要求：健康检查 + 自动降级 + 恢复回升；全部 OpenAI 兼容 `/v1/embeddings` 接口；failover 仅限同模型提供商（活跃模型 = 最高优先级已启用提供商的模型）；未配置任何可用提供商时 health 返回 warnings，不静默兜底。
 
 ## 安全

@@ -1,5 +1,6 @@
 {
   "name": "@session-hub/claude-code-plugin",
+  "license": "MIT",
   "private": true,
   "version": "0.1.0",
   "type": "module",

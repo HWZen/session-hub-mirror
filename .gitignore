@@ -19,3 +19,5 @@ server/apps/web/src/routeTree.gen.ts
 .zcode/
 skills/*/config.json
 skills/*/config.json.*
+plugins/opencode/develop-doc/*/e2e-*/
+server/develop-doc/*/probe/result.json

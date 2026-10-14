@@ -1,6 +1,7 @@
 {
   "name": "session-hub",
   "private": true,
+  "license": "MIT",
   "workspaces": [
     "packages/*",
     "server/apps/*",

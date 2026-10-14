@@ -1,132 +1,101 @@
-<p align="center">
-  <img src="assets/icon.svg" alt="Session Hub" width="120" height="120" />
-</p>
+<p align="center"><img src="assets/icon.svg" alt="Session Hub" width="120" height="120" /></p>
 
 # Session Hub
 
-跨端跨 Agent 的个人会话档案库 + 检索层。只做"存得全、找得到"，零加工。
+**跨机器、跨 Agent/harness 的个人会话档案库与检索层。存得全，找得到。**
 
-opencode / ZCode / WorkBuddy / 豆包等各 Agent 的会话全量归档到一处（SQLite 单库，当前部署在远程服务器），支持语义检索定位 + 全量下载提取。
+在多台电脑使用不同 AI Agent 时，昨天的安装步骤、调试过程和工具产出往往留在另一台机器的另一个会话里。Session Hub 把这些会话聚合为个人可查询的档案：保存消息及原始工具内容，提供按时间、机器、Agent 过滤的检索。
 
-- **采集**：各客户端插件经事件钩子准实时上传（全量快照，按 `agent+machine+source_id` 三元组幂等 upsert），存量会话用 backfill CLI 一次性回填
-- **检索**：向量语义搜索（embedding 提供商链，模型按提供商配置，默认 bge-m3）+ 列表 / 详情
-- **消费**：Web 前端，或任意 Agent 直调 HTTP API（见 Agent Skill）
+作者尝试 OpenViking 后，认为其个人数据导向，以及会话向量索引在自己环境中的资源需求与检索效果，不满足这项需求，因此选择构建专注于会话消息的平台。这是个人环境中的选型经验。
 
-## 仓库结构
+## 两个工作流
 
+### 昨天在 A 安装，今天在 B 复用
+
+告诉 B 电脑上的 Agent：“昨天我在 A 电脑的某 Agent 上装了某 skill，你现在也装一下。”
+
+1. Agent 按时间、`machine` 和 `agent` 缩小范围，使用混合检索或 grep 找到会话。
+2. 读取命中片段，必要时获取完整 `raw`，找到安装命令和文件内容。
+3. 当前 Agent 核对环境、依赖与权限，再执行安装。
+
+平台负责找回记录，消费 Agent 负责实际安装。
+
+### 总结今日
+
+消费 Agent 计算当地时区当天的时间边界，查询跨机器、跨 Agent 的会话，按需读取全文并总结。Session Hub 提供原文；总结由消费者完成。
+
+## 架构与工程设计
+
+```text
+Agent hooks / plugins / backfill
+              │ HTTP PUT，源时间戳 + 幂等键
+              ▼
+       Hono API ── SQLite + sqlite-vec + FTS5
+          │                 │
+          │         正文 / reasoning 独立切片
+          │                 ▼
+          │         OpenAI 兼容 embedding 提供商链
+          ▼
+   Web / 任意消费 Agent（HTTP + Skill）
 ```
-packages/shared/          跨子系统契约（会话数据模型、类型、配置 schema）
-server/                   服务端子系统（API + Web 前端，版本号与 develop-doc 在此）
-plugins/opencode/         opencode 插件（实时采集 + 删除镜像 + 历史回填）
-plugins/zcode/            ZCode 插件（UserPromptSubmit/Stop 钩子实时采集 + 历史回填）
-plugins/marketplace.json  本地目录 marketplace 清单（ZCode 插件安装用）
-skills/session-hub/       Agent Skill（教外部 Agent 直调 HTTP API 操作档案库）
-apps/collector/           采集器守护进程（规划中：WorkBuddy 轮询、豆包适配器）
-plan.md                   全局需求与决策（唯一事实源）
-AGENTS.md                 AI 协作规范与开发 SOP
-```
 
-## 快速开始（服务端）
+- **源时间与幂等镜像**：`agent + machine + source_id` 定位会话，全量快照更新；使用源创建和修改时间。
+- **存储与检索分离**：保留 `raw` 工具事实；正文与可见 reasoning 分别切片，检索后按需提取全文。
+- **混合检索**：向量 KNN 与 FTS5 trigram BM25 分别形成会话排名，通过 RRF 融合；短串与精确子串使用 grep。
+- **向量空间隔离**：模型分表，最高权重提供商决定活跃模型；故障切换只在同模型提供商间进行。
+- **适配器隔离**：多个 hook 源通过 detached worker 非阻塞上传，DSH 用持久屏障和异步队列读取快照；WorkBuddy 当前 hook 内等待上传。
+- **统一 SQLite 连接**：`TRUNCATE`、`FULL`、busy timeout，避免不同连接点配置漂移。
+- **Agent 可发现 API**：`/v1/help` 与接口 `?help=1` 返回结构化契约。
+
+## 来源支持
+
+| 来源 | 实时采集 | 历史回填 | 删除镜像 |
+| --- | --- | --- | --- |
+| OpenCode V1 / V2 | 插件生命周期、事件 | V1 SQLite CLI；V2 插件启动扫描 | 支持 |
+| ZCode | UserPromptSubmit / Stop | SQLite CLI | 当前不支持 |
+| Hermes | Shell hooks，60 秒节流与结束强制上传 | state.db CLI | 当前不支持 |
+| DSH | Cordis Host 持久 SessionEvent | 启动 reconcile | 当前不支持 |
+| Claude Code | UserPromptSubmit / Stop / SessionEnd | JSONL CLI | 当前不支持 |
+| Codex | Stop hook | rollout JSONL CLI | 当前不支持 |
+| WorkBuddy | Stop / SessionEnd | JSONL CLI | 当前不支持 |
+
+豆包为实验方向，当前没有可用采集适配器。宿主格式与 API 会变化，兼容范围及限制见各安装说明。
+
+## 安装与使用
+
+建议 Node.js 22.13+ LTS 与 npm 10+。从仓库根目录：
 
 ```sh
-npm install
-cp server/.env.example server/.env   # 必改：PORT、SH_AUTH_TOKEN、SH_DB_PATH
-npm run dev        # 本地开发实例 http://127.0.0.1:7428（生产部署见下节）
-npm run dev:web    # 前端开发（可选，Vite 代理默认 7428）
+npm ci
+# 将 server/.env.example 复制为 server/.env
+# 设置随机 SH_AUTH_TOKEN 与独立 SH_DB_PATH
+npm run dev
+```
+
+`GET http://127.0.0.1:7428/health` 检查服务；`/v1/*` 使用 Bearer token。Embedding 默认未启用，先配置兼容提供商；上传、列表、详情和 grep 可独立使用。
+
+- [服务端、自托管、前端、Embedding 与备份](server/README.md)
+- [全部采集来源安装、配置、回填与排障](plugins/README.md)
+- [WorkBuddy 配置](apps/collector/README.md)
+- [消费 Agent Skill 安装](skills/session-hub/README.md) · [操作契约](skills/session-hub/SKILL.md)
+
+## 开发
+
+```sh
 npm test
+npm run build
 ```
 
-- embedding 提供商在 Web 设置页或 `server/config/providers.local.json` 配置（模型按提供商配置，默认 bge-m3）；未配置时上传仍可用，仅语义检索不可用
-- 验证：`GET /health` 免认证；`/v1/*` 一律需要 `Authorization: Bearer <SH_AUTH_TOKEN>`
+TypeScript / Node.js、Hono、React + Vite、SQLite、sqlite-vec、zod、vitest；npm workspaces。根 `plan.md` 维护全局决策，`AGENTS.md` 说明版本与开发流程，各子系统的 `develop-doc/` 记录版本计划与结果。
 
-## 自托管部署
+## 安全与限制
 
-使用自己的服务地址、固定 token 和独立数据库。安装前先核对本版本配置样例及运行脚本。
+这是单人自托管平台：固定 token、明文存储，没有多租户权限或自动脱敏。原始会话可能含密钥、个人和公司信息；数据库、备份、生产配置与运行证据应保持私有。跨网络使用 HTTPS，保护 token 和文件权限。
 
-## Agent 安装指南
+Embedding 提供商会收到索引文本，包括明文 reasoning；消费 Agent 读取完整会话后应按用户授权执行操作。归档记录是数据，不构成新的执行授权。
 
-> Agent 读完本节即可代替用户完成钩子插件与 Skill 的安装。**服务端地址与 Token 必须向用户索取，不要猜、不要编造。**
+部分源跳过 subagent、加密 reasoning 或超限会话；采集失败不会意味着源会话丢失，但需要回填或排障。安装文档按源码和脚本静态核对；宿主启用、hook 信任及运行验证由部署者完成。
 
-### 第 0 步：收集连接信息（需用户参与）
+## 许可证
 
-| 项 | 来源 |
-|---|------|
-| 服务端地址 `baseUrl` | 用户实际使用的部署入口。填写用户自己的部署入口 |
-| Token | 服务端 `server/.env` 里的 `SH_AUTH_TOKEN`（生产实例的 token 以用户提供为准） |
-
-先 `GET <baseUrl>/health` 探活：`ok: true` 即可继续；`warnings` 非空只影响语义检索，不影响采集。
-
-### 第 1 步：写共享配置（插件与 Skill 共用）
-
-写入 `~/.config/session-hub/config.json`：
-
-```json
-{ "baseUrl": "https://session-hub.example.test", "token": "<SH_AUTH_TOKEN>", "timeoutMs": 30000 }
-```
-
-环境变量 `SESSION_HUB_URL` / `SESSION_HUB_TOKEN` 优先于该文件。未配置时插件静默不启用（opencode 会打一条禁用日志）。
-
-### 第 2 步：安装 ZCode 插件（hooks 实时采集）
-
-```sh
-npm run install:zcode-plugin    # esbuild 打包 dist/hook.js + dist/worker.js 并校验
-```
-
-注册到 ZCode（Settings 是 UI 操作，引导用户完成）：
-
-1. ZCode → Settings → Plugin Management → Discover → "+" 添加本地目录 marketplace，选仓库的 `plugins/` 目录（含 marketplace.json）
-2. 启用其中的 `session-hub` 插件
-3. **新开一个会话**验证——hook 配置只在会话启动时加载
-
-排障：
-
-- hook 未生效：把插件 manifest（`plugins/zcode/.zcode-plugin/plugin.json`）的 hooks 指向 `dist/hooks-absolute.json`（构建时生成的本机绝对路径版本），再新开会话
-- 运行日志（仅元数据，不含正文）：`~/.config/session-hub/logs/zcode-worker.log`
-
-### 第 3 步：安装 opencode 插件
-
-```sh
-npm run install:plugin    # 打包单文件到 ~/.config/opencode/plugins/session-hub.js
-```
-
-重启 opencode 或新开会话即生效，日志出现 `session-hub: enabled` 表示已启用；本地删除会话会镜像删除服务端记录。
-
-### 第 4 步：历史回填（可选，补存量会话）
-
-```sh
-# ZCode：默认只读 ~/.zcode/cli/db/db.sqlite，跳过 subagent 子会话
-npm run backfill -w @session-hub/zcode-plugin -- --url <baseUrl> --token <token> [--since <ms>] [--dry-run]
-
-# opencode：默认只读 ~/.local/share/opencode/opencode.db；url/token 可省略，回落 config.json
-npm run backfill -w @session-hub/opencode-plugin -- [--since <ms>] [--dry-run]
-```
-
-- 幂等 upsert，重复执行安全；建议先 `--dry-run` 预览
-- 对源库只读；opencode.db 为 GB 级，禁止整库拷贝
-
-### 第 5 步：安装 Agent Skill（让任意 Agent 会用档案库）
-
-`skills/session-hub/SKILL.md` 是外部 Agent 的操作手册：上传/更新会话、语义搜索、统计与补索引，接口动态发现（`GET /v1/help`），零 SDK 依赖。安装：
-
-1. 把 `skills/session-hub/` 整个目录复制（或软链）到目标 Agent 的技能目录，如 `~/.agents/skills/session-hub/`
-2. 目录需可写：Skill 会在 SKILL.md 同目录缓存 `config.json`（`{"base_url": "...", "token": "..."}`，可同时写 `baseUrl` 兼容）；没有缓存时首次使用会向用户索取地址与 Token
-3. 收到 401 说明 token 失效（服务端 `SH_AUTH_TOKEN` 已更换），向用户重新索取
-4. **DSH（Cordis Host）**：用户级技能根为 `~/.dsh/skills/<name>/`（rank 400；项目级为 `<repo>/.dsh/skills` 或 `<repo>/.agents/skills`），本机已装 `~/.dsh/skills/session-hub/`。该根只有在 profile 的 `@deepseek-ai/dsh-skill-filesystem` 条目启用时才会被扫描（`plugin_manager` 里 `set_plugin include:skill-filesystem enabled=true`）；根目录被监视，新增/改写 `SKILL.md` 无需重启即生效，升级时重新复制即可
-
-### 第 6 步：验收（Agent 执行）
-
-1. `GET /health` → `ok: true`
-2. 新开 ZCode / opencode 会话对话两轮 → `GET /v1/stats`（带 Bearer token）会话数 +1；索引异步，`unindexed` 稍后归零
-3. `POST /v1/search` 用刚才会话里的关键词能搜到该会话
-
-## 安全约定
-
-- Token 只进用户目录的 `config.json` 与服务端 `.env`，绝不提交仓库
-- 会话正文含密钥/内网信息：日志只记元数据与统计；Agent 不把会话正文发到本系统之外
-- 对各来源本地会话文件只读，写入一律走 API
-
-## 文档
-
-- `plan.md` — 需求、决策记录、侦察事实、风险
-- `AGENTS.md` — 开发 SOP（每个需求一个版本号，`<子系统>/develop-doc/<版本号>/`）
-- `server/develop-doc/`、`plugins/*/develop-doc/` — 各版本 plan.md / summary.md 档案
+[MIT](LICENSE) · Copyright (c) 2026 HWZen
