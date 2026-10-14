@@ -45,7 +45,7 @@
 | 向量提供商 | **配置文件驱动**；优先级链：5070Ti(frp) → 4070Ti(frp) → 云端(待填，可走 new-api 网关)；**不再内置本地 CPU 兜底**（2026-09-05 变更：服务器 i3+16G 跑不动 fp32 bge-m3，实测峰值 20G+ 内存）；本地推理服务（Ollama/llama.cpp 等）如需要，按普通 OpenAI 兼容 provider 配置即可 | 健康检查 + 自动降级；降级只换"谁在算"，不换"算什么"（候选集限同模型，见"向量模型"行）；未配置任何可用提供商时 health 返回警告、索引/搜索报错，不静默兜底；Web 设置页可编辑（配地址/密钥/模型/权重/开关/超时），写 `config/providers.local.json`（gitignore，优先于样例文件），保存即热更新 |
 | 技术栈 | TypeScript / Node.js（唯一语言）+ Hono + SQLite + sqlite-vec | **不用 Docker**；Caddy + NSSM 属 P4 公网化（暂缓），当前 WSL2 内 systemd 托管（`session-hub.service`，Windows 登录计划任务拉起 distro） |
 | 端范围 | 多台 Windows PC；手机不做；网页端/非 Agent 数据不做 | |
-| v1 信息源 | opencode（钩子）、WorkBuddy（hook 实时推送，2026-09-08 变更）、豆包（实验性）、zcode（钩子+回填，2026-09-06 增）、Hermes（Shell hooks + state.db 回填）、DSH（Cordis Host 插件监听持久会话事件，2026-10-08 增）、Claude Code（插件 hook + transcript_path 直读，2026-10-09 增） | |
+| v1 信息源 | OpenCode、ZCode、WorkBuddy、Hermes、DSH、Claude Code、Codex；豆包为实验方向 | 各来源能力见安装文档 |
 | opencode 历史回填 | 做（本机已有 117 会话） | |
 | 更新/删除策略 | 跟随本地：本地改动/删除即同步（镜像语义），待实现时再细化 | |
 | 时效性 | 钩子源准实时；轮询源分钟级 | |
@@ -103,6 +103,13 @@
 - 采集路线：**插件 hook（UserPromptSubmit/Stop/SessionEnd）触发 + `transcript_path` 直读全量 upsert**；无 db、无节流；
   subagent 0.1.0 不采集；插件档 `plugins/claude-code/develop-doc/0.1.0/plan.md`
 
+### Codex ✅
+- 本地会话：`$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl`（默认 `$CODEX_HOME=~/.codex`）；标题索引为 `$CODEX_HOME/session_index.jsonl`
+- 官方 hook：`Stop` 每轮主线程完成触发，stdin 提供 `session_id`、`transcript_path`、`cwd`、`turn_id` 等；插件可随 `hooks/hooks.json` 分发生命周期 hook，但安装/变更后需用户审阅信任
+- 当前桌面端 rollout 的高层 `event_msg/item_completed` 可区分 `UserMessage`、`AgentMessage`、`Reasoning`、`CommandExecution`、`Extension`；底层 `response_item` 含 developer 注入与加密 reasoning，不能直接全量当对话正文
+- 官方声明 transcript 格式不是稳定 hook 接口，适配器必须用 fixture 覆盖当前格式并保留兼容 fallback
+- 采集路线：插件 `Stop` hook 触发 detached worker，对 `transcript_path` 做逐轮全量 upsert；扫描 sessions JSONL 做历史回填；插件档 `plugins/codex/develop-doc/0.1.0/plan.md`
+
 ### 自托管环境
 
 用户自行部署服务、数据库与 embedding provider；实例数据目录独立，远程访问使用 HTTPS。
@@ -122,7 +129,7 @@ Agent plugins / hooks → Hono API → SQLite + sqlite-vec + FTS5
 ```
 sessions
   id              TEXT PK        -- 服务端生成 UUID
-  agent           TEXT NOT NULL  -- opencode | workbuddy | doubao
+  agent           TEXT NOT NULL  -- opencode | workbuddy | doubao | zcode | codex
   machine         TEXT NOT NULL  -- 主机名
   source_id       TEXT NOT NULL  -- 源会话 ID
   title           TEXT
@@ -165,6 +172,7 @@ messages / parts                -- 全量原文（JSON 存储或子表，实施�
 4. **P4 公网化 + 提供商链（暂缓，2026-09-06：先局域网 HTTP:5328 + token）**：Caddy(HTTPS/DDNS) + frps/frpc + GPU 机 bge-m3 服务 + 提供商配置文件（5070Ti→4070Ti→云端）
 5. **P5 豆包实验适配器**：copy-then-read + LevelDB/IndexedDB 尽力解析
 6. **P6 收尾**：消费端验证（WorkBuddy 每日总结任务改走本 API）、文档、运行手册
+7. **P7 Codex 插件**：Stop hook 逐轮全量上报 + rollout JSONL 历史回填
 
 ## 9. 风险与对策
 
@@ -172,6 +180,7 @@ messages / parts                -- 全量原文（JSON 存储或子表，实施�
 |---|---|
 | SQLite WAL 在 SMB 上有损坏风险（文件锁不可靠） | **禁用 WAL**：`journal_mode=TRUNCATE`（或 DELETE）+ `synchronous=FULL`；单人低写入量可接受；出现锁问题再回退本地盘 |
 | 豆包解析随版本更新失效 | 定位为实验性，独立模块、可整体停用；能采多少是多少 |
+| Codex rollout transcript 格式变更 | 官方已声明格式不稳定；适配器用真实 fixture、主/兼容双路径、未知事件宽容与解析统计隔离变化 |
 | WorkBuddy 格式未经另一台机器实测 | 2026-09-08 已在本机（WORKSTATION-B）实测并修正解析器；其他机器/版本以实机样本为准，采集器做好格式容错 |
 | 提供商切换导致向量空间不一致 | 向量表按模型分表；failover 候选仅限同模型 provider；会话记录 `indexed_model`，检索只查活跃模型空间；切换后旧空间会话自动进入待索引队列（`indexed_model != 活跃模型` 即视为未索引） |
 | 档案库成为"历史秘密集中地" | 现在不做；后期可在**采集端**加脱敏（客户端职责，不违反系统零加工原则） |
